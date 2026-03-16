@@ -89,31 +89,16 @@ echo -e "${GREEN}Step 5: Commit changes${NC}"
 git commit -m "Initial commit: EPUB RAG MCP Server with OpenRouter integration"
 
 echo ""
-echo -e "${GREEN}Step 6: Create GitHub repository${NC}"
-echo ""
-echo -e "${YELLOW}Creating repo manually:${NC}"
-echo ""
-echo "1. Go to https://github.com/new"
-echo "2. Select your account or organization"
-echo "3. Enter repository name: $REPO_NAME"
-echo "4. Set to 'Private'"
-echo "5. Check 'Initialize this repository with a .gitignore'"
-echo "6. Select '.gitignore' -> 'Python'"
-echo "7. Click 'Create repository'"
-echo ""
-read -p "After creating, enter GitHub username: " USERNAME
+echo -e "${GREEN}Step 6: Create private GitHub repository${NC}"
 
-# Add remote manually
-git remote add origin "https://github.com/$USERNAME/$REPO_NAME.git"
-
-echo ""
-echo -e "${GREEN}Step 7: Push to GitHub${NC}"
-git push -u origin main
+# Create private repo using GitHub CLI
+echo "Creating private repo: $REPO_NAME"
+gh repo create "$REPO_NAME" --private --source=. --remote=origin --push
 
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"
 echo ""
-echo "Remote repo: https://github.com/$USERNAME/$REPO_NAME"
+echo "Remote repo: https://github.com/filius-fall/$REPO_NAME"
 echo ""
 echo -e "${YELLOW}Next steps on your server:${NC}"
 cat << 'EOF'
@@ -121,7 +106,7 @@ cat << 'EOF'
    ssh user@your-server-ip
 
 2. Clone the repo:
-   git clone https://github.com/YOUR_USERNAME/epub-rag-mcp.git
+   git clone https://github.com/filius-fall/epub-rag-mcp.git
    cd epub-rag-mcp
 
 3. Set up the environment:
@@ -137,5 +122,5 @@ cat << 'EOF'
 
 6. Access from your local machine:
    - Get server IP: hostname -I
-   - Update Opencode config with server IP, or use SSH tunneling
+   - Add to Opencode config with SSH tunneling
 EOF
