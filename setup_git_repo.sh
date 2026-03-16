@@ -91,9 +91,15 @@ git commit -m "Initial commit: EPUB RAG MCP Server with OpenRouter integration"
 echo ""
 echo -e "${GREEN}Step 6: Create private GitHub repository${NC}"
 
-# Create private repo using GitHub CLI
+# Create private repo using GitHub CLI (without --source to avoid remote issues)
 echo "Creating private repo: $REPO_NAME"
-gh repo create "$REPO_NAME" --private --source=. --remote=origin --push
+gh repo create "$REPO_NAME" --private --confirm
+
+# Add remote and push
+echo ""
+echo "Adding remote origin and pushing..."
+git remote add origin "https://github.com/filius-fall/$REPO_NAME.git"
+git push -u origin main
 
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"
