@@ -1,277 +1,120 @@
-# EPUB RAG MCP Server
+# BookRAG
 
-A Model Context Protocol (MCP) server that enables Claude Code to answer questions about EPUB files using vector embeddings and RAG (Retrieval Augmented Generation).
+BookRAG is a self-hosted application for uploading books, indexing them into a local vector database, and querying them through a web UI, REST API, CLI, or MCP server.
 
-## Features
+## What It Supports
 
-- **OpenRouter API Integration**: Cost-effective embeddings and LLM calls through OpenRouter
-- **Gemini 2.5 Models**: Latest Gemini models (2.5 Flash Preview - default) for fast, cost-effective answers
-- **Direct LLM Answering**: Generate complete answers using Gemini models (faster & cheaper)
-- **Claude Code Integration**: Works seamlessly with Claude Code's native LLM
-- **Persistent Storage**: ChromaDB for local, persistent vector storage
-- **Fast Retrieval**: RAG-based chunk retrieval with similarity search
-- **Gemini-Only**: Optimized for Gemini models (2.5, 1.5) for best performance and cost
+- Upload `EPUB` and `PDF` books
+- Build local Chroma indexes per uploaded book
+- Save your own provider keys for:
+  - OpenAI-compatible APIs such as OpenRouter
+  - Anthropic
+  - Google Gemini
+- Choose separate models for:
+  - Embeddings
+  - Chat
+  - OCR / vision extraction
+- Query with spoiler modes:
+  - `full_context`
+  - `book_only`
+  - `through_chapter`
+  - `through_series_boundary`
+- Link books into an ordered series
+- Use the same backend from:
+  - built-in web app
+  - REST API
+  - `bookrag-cli`
+  - `bookrag-mcp`
 
-## Installation
+## Architecture
 
-### 1. Clone or navigate to the project directory
+- `bookrag/api.py`: FastAPI app and built-in web UI
+- `bookrag/services.py`: shared application logic
+- `bookrag/providers.py`: provider adapters
+- `bookrag/ingestion.py`: EPUB/PDF ingestion and OCR
+- `bookrag/vector_store.py`: Chroma storage
+- `bookrag/cli.py`: command-line interface
+- `bookrag/mcp_bridge.py`: MCP server that proxies to the REST API
+
+## Quick Start
+
+### 1. Install dependencies
+
 ```bash
-cd /home/sreeram/Downloads/Telegram\ Desktop/epub-rag-mcp
-```
-
-### 2. Create a virtual environment
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-### 3. Install dependencies
-```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure API Key
-
-Copy the `.env.template` file and add your OpenRouter API key:
+### 2. Configure environment
 
 ```bash
 cp .env.template .env
 ```
 
-Edit `.env` and set your API key:
-```
-OPENROUTER_API_KEY=your_actual_api_key_here
-```
-
-Get your API key from: https://openrouter.ai/keys
-
-## Usage
-
-### Start the MCP Server
+Set at least:
 
 ```bash
+BOOKRAG_APP_SECRET=change-this-secret-before-deploying
+BOOKRAG_API_TOKEN=replace-later
+```
+
+### 3. Start the app
+
+```bash
+python app_server.py
+```
+
+Visit `http://127.0.0.1:8000`, create the admin account, add providers, upload books, and index them.
+
+## CLI
+
+```bash
+bookrag-cli --base-url http://127.0.0.1:8000 login --username admin --password your-password
+bookrag-cli libraries list
+bookrag-cli books upload --library-id 1 --file /path/to/book.epub
+bookrag-cli books ingest --book-id 1 --embedding-provider-id 1 --embedding-model text-embedding-3-small
+bookrag-cli chat --library-id 1 --question "What happens?" --chat-provider-id 1 --chat-model google/gemini-2.5-flash-preview
+```
+
+## MCP
+
+Start the BookRAG API first, then run:
+
+```bash
+BOOKRAG_API_URL=http://127.0.0.1:8000 \
+BOOKRAG_API_TOKEN=your-api-token \
 python server.py
 ```
 
-### Register with Claude Code
-
-Add the following to your Claude Code settings:
+Example Claude Code MCP config:
 
 ```json
 {
   "mcpServers": {
-    "epub-rag-mcp": {
+    "bookrag": {
       "command": "python",
-      "args": ["/home/sreeram/Downloads/Telegram Desktop/epub-rag-mcp/server.py"]
+      "args": ["/absolute/path/to/BookRAG/server.py"],
+      "env": {
+        "BOOKRAG_API_URL": "http://127.0.0.1:8000",
+        "BOOKRAG_API_TOKEN": "your-api-token"
+      }
     }
   }
 }
 ```
 
-### Available Tools
-
-#### 1. load_epub
-Load and process an EPUB file.
-
-**Input:**
-```json
-{
-  "epub_path": "/path/to/your/book.epub"
-}
-```
-
-**Output:** Summary with word count, chunk count, and cost estimate.
-
-#### 2. ask_question
-Ask a question about a loaded EPUB (returns relevant passages for Claude Code to answer).
-
-**Input:**
-```json
-{
-  "question": "What is the main plot about?",
-  "epub_name": "Optional specific EPUB name"
-}
-```
-
-**Output:** Relevant passages with sources and similarity scores.
-
-#### 3. ask_question_with_llm ⭐ NEW
-Ask a question and get a complete answer using OpenRouter LLM (e.g., Gemini 2.5).
-
-**Input:**
-```json
-{
-  "question": "What is the main plot?",
-  "epub_name": "Optional EPUB name",
-  "model": "google/gemini-2.5-flash-preview",
-  "temperature": 0.7,
-  "max_tokens": 1000
-}
-```
-
-**Output:** Complete answer generated by the specified LLM with citations.
-
-**Available Models:**
-- `google/gemini-2.5-flash-preview` - Latest, fastest, default ⭐
-- `google/gemini-2.5-pro` - Highest quality for complex tasks
-- `google/gemini-1.5-flash` - Fast, reliable
-- `google/gemini-1.5-pro` - High-quality reasoning
-- `google/gemini-1.5-flash-8b` - Most cost-effective
-
-Use `list_available_models` to see all Gemini options.
-
-#### 4. list_epubs
-List all loaded EPUBs.
-
-**Input:** None
-
-**Output:** List of loaded EPUBs with metadata.
-
-#### 6. get_epub_info
-Get detailed information about a specific EPUB.
-
-**Input:**
-```json
-{
-  "epub_name": "Book Title"
-}
-```
-
-**Output:** Detailed statistics about the EPUB.
-
-#### 7. clear_epub
-Remove an EPUB from storage.
-
-**Input:** None
-
-**Output:** List of available models with descriptions and costs.
-
-## Example Workflow
-
-1. **Load an EPUB:**
-   ```
-   Use tool: load_epub
-   Path: /path/to/Myst,_Might,_and_Mayhem.epub
-   ```
-
-2. **Ask a question (with LLM):**
-   ```
-   Use tool: ask_question_with_llm
-   Question: Who are the main characters?
-   Model: google/gemini-2.5-flash-preview
-   ```
-
-3. **List available models:**
-   ```
-   Use tool: list_available_models
-   ```
-
-4. **List loaded EPUBs:**
-   ```
-   Use tool: list_epubs
-   ```
-
-5. **Get specific info:**
-   ```
-   Use tool: get_epub_info
-   EPUB name: Myst, Might, and Mayhem
-   ```
-
-6. **Clear when done:**
-   ```
-   Use tool: clear_epub
-   EPUB name: Myst, Might, and Mayhem
-   ```
-
-## Configuration
-
-Edit `.env` to customize behavior:
+## Docker Compose
 
 ```bash
-# API Key (required)
-OPENROUTER_API_KEY=your_key_here
-
-# Embedding model (default: openai/text-embedding-3-small)
-EMBEDDING_MODEL=openai/text-embedding-3-small
-
-# LLM model for direct calls (default: google/gemini-2.5-flash-preview - latest & fastest)
-LLM_MODEL=google/gemini-2.5-flash-preview
-
-# Chunk size in tokens (default: 750)
-CHUNK_SIZE=750
-
-# Chunk overlap in tokens (default: 100)
-CHUNK_OVERLAP=100
-
-# Number of results to return (default: 5)
-TOP_K=5
+cp .env.template .env
+docker compose up --build
 ```
 
-## Cost Analysis
+The app stores SQLite data, uploads, and Chroma indexes in `./data`.
 
-For a typical 1M token EPUB:
+## OCR Notes
 
-- **Gemini 1.5 Flash-8B embeddings**: ~₹7.56
-- **OpenAI text-embedding-3-small**: ~₹0.03
-- **Total savings**: ~60-75% vs premium LLM services
-
-## Architecture
-
-```
-Claude Code (User Interface)
-    ↓ (MCP Protocol)
-EPUB RAG MCP Server
-    ↓
-- EPUB Text Extraction (ebooklib)
-- Text Chunking (500-1000 tokens)
-- OpenRouter Embeddings (Gemini models)
-- ChromaDB Vector Storage
-- RAG Retrieval
-    ↓
-Return relevant chunks to Claude Code
-```
-
-## Project Structure
-
-```
-epub-rag-mcp/
-├── server.py              # Main MCP server
-├── epub_processor.py      # EPUB extraction and chunking
-├── embedder.py           # OpenRouter embeddings
-├── retriever.py          # RAG retrieval logic
-├── chroma_manager.py      # ChromaDB operations
-├── openrouter_client.py   # OpenRouter API client
-├── config.py             # Configuration management
-├── requirements.txt       # Dependencies
-├── .env                 # API key storage (user provided)
-├── .env.template        # Template for .env
-├── README.md            # This file
-└── data/                # ChromaDB storage directory
-```
-
-## Troubleshooting
-
-### "Configuration error: OPENROUTER_API_KEY is required"
-- Make sure you've created a `.env` file from `.env.template`
-- Add your actual OpenRouter API key to the `.env` file
-
-### "EPUB file not found"
-- Check that the file path is correct and absolute
-- Ensure the file has `.epub` extension
-
-### "No EPUBs loaded"
-- Use `load_epub` tool first before asking questions
-- Check with `list_epubs` to see what's loaded
-
-### Slow performance on large EPUBs
-- This is normal for first load (embedding generation)
-- Subsequent queries will be fast (<1 second)
-- Consider reducing `CHUNK_SIZE` in `.env` for faster loading
-
-## License
-
-MIT
-
-## Contributing
-
-Contributions welcome! Please feel free to submit issues or pull requests.
+- OCR is intended for scanned PDFs, comics, and manga.
+- OCR uses the selected vision-capable provider/model and may be significantly more expensive than text-only indexing.
+- The app requires explicit OCR confirmation for indexing requests.

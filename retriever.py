@@ -5,6 +5,7 @@ Handles question processing and result formatting.
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 
+from config import Config
 from embedder import Embedder
 from chroma_manager import ChromaManager
 
@@ -53,8 +54,10 @@ class Retriever:
 
         # Query ChromaDB - get more results to account for filtering
         try:
+            # Use config TOP_K as default if n_results not specified
+            effective_n = n_results or Config.TOP_K
             # Query with more results if we're limiting
-            query_n = n_results * 3 if search_limit else n_results
+            query_n = effective_n * 3 if search_limit else effective_n
             results = self.chroma_manager.query(
                 epub_name=epub_name,
                 query_embedding=query_embedding,

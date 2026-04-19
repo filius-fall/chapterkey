@@ -9,7 +9,7 @@ venv/
 .env.local
 
 # Data (keep .env.template)
-data/chroma_db/
+data/
 *.db
 *.sqlite
 *.sqlite3
@@ -30,5 +30,4 @@ Thumbs.db
 logs/
 
 # Project specific
-*.epub  # EPUB files are large - keep them local or sync separately
-Myst,_Might,_and_Mayhem.epub  # Example EPUB - user specific
+*.epub  # EPUB files are large - user can add their own

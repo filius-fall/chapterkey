@@ -91,29 +91,30 @@ git commit -m "Initial commit: EPUB RAG MCP Server with OpenRouter integration"
 echo ""
 echo -e "${GREEN}Step 6: Create private GitHub repository${NC}"
 
-# Create private repo using GitHub CLI (without --source to avoid remote issues)
+# Create private repo using GitHub CLI
 echo "Creating private repo: $REPO_NAME"
-gh repo create "$REPO_NAME" --private --confirm
+gh repo create "$REPO_NAME" --private
 
-# Add remote and push
+# Set remote to SSH and push
 echo ""
-echo "Adding remote origin and pushing..."
-git remote add origin "https://github.com/filius-fall/$REPO_NAME.git"
-git push -u origin main
+echo "Setting up SSH remote and pushing..."
+git remote set-url origin "git@github.com:filius-fall/$REPO_NAME.git" 2>/dev/null || \
+    git remote add origin "git@github.com:filius-fall/$REPO_NAME.git"
+git push origin master:main
 
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"
 echo ""
 echo "Remote repo: https://github.com/filius-fall/$REPO_NAME"
+echo "SSH URL: git@github.com:filius-fall/$REPO_NAME.git"
 echo ""
 echo -e "${YELLOW}Next steps on your server:${NC}"
 cat << 'EOF'
 1. SSH to your server:
    ssh user@your-server-ip
 
-2. Clone the repo:
-   git clone https://github.com/filius-fall/epub-rag-mcp.git
-   cd epub-rag-mcp
+2. Ensure SSH key is on server (gh auth login on server)
+   OR clone with HTTPS: git clone https://github.com/filius-fall/epub-rag-mcp.git
 
 3. Set up the environment:
    python3 -m venv venv
