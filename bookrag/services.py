@@ -190,6 +190,17 @@ class BookRAGService:
         """Return whether an admin user is configured."""
         return self.db.fetch_one("SELECT id FROM admin_users LIMIT 1") is not None
 
+    def has_providers(self) -> bool:
+        """Return whether any provider credentials are configured."""
+        return self.db.fetch_one("SELECT id FROM provider_credentials LIMIT 1") is not None
+
+    def has_configured_provider(self) -> bool:
+        """Return whether any provider has an embedding model configured."""
+        row = self.db.fetch_one(
+            "SELECT id FROM provider_credentials WHERE default_embedding_model IS NOT NULL AND default_embedding_model != '' LIMIT 1"
+        )
+        return row is not None
+
     def setup_admin(self, username: str, password: str) -> dict[str, Any]:
         """Create the single admin user."""
         if self.admin_exists():
@@ -394,7 +405,7 @@ class BookRAGService:
         return self._sanitize_provider(provider) if provider else None
 
     def default_provider_ids(self) -> dict[str, int | None]:
-        """Resolve default provider ids from environment-backed provider names."""
+        """Resolve default provider ids from environment-backed provider names, falling back to DB."""
         lookup = {
             "embedding_provider": os.getenv("BOOKRAG_DEFAULT_EMBEDDING_PROVIDER_NAME"),
             "chat_provider": os.getenv("BOOKRAG_DEFAULT_CHAT_PROVIDER_NAME"),
@@ -407,6 +418,21 @@ class BookRAGService:
                 continue
             provider = self.find_provider_by_name(name)
             resolved[key] = int(provider["id"]) if provider else None
+
+        fallback = self.db.fetch_one(
+            "SELECT id, default_embedding_model, default_chat_model, default_ocr_model "
+            "FROM provider_credentials "
+            "WHERE default_embedding_model IS NOT NULL AND default_embedding_model != '' "
+            "ORDER BY id LIMIT 1"
+        )
+        if fallback:
+            if resolved.get("embedding_provider") is None and fallback["default_embedding_model"]:
+                resolved["embedding_provider"] = int(fallback["id"])
+            if resolved.get("chat_provider") is None and fallback["default_chat_model"]:
+                resolved["chat_provider"] = int(fallback["id"])
+            if resolved.get("ocr_provider") is None and fallback["default_ocr_model"]:
+                resolved["ocr_provider"] = int(fallback["id"])
+
         return resolved
 
     def find_verified_book_by_fingerprint(self, library_id: int, fingerprint: str) -> dict[str, Any] | None:

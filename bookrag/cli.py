@@ -18,6 +18,15 @@ import requests
 
 from bookrag import __default_branch__, __update_repo__, __version__
 from bookrag.folder_ingest import FolderIngestor, LocalIngestConfig, SKIP_SUFFIXES, SUPPORTED_EXTENSIONS
+from bookrag.ollama_setup import (
+    ensure_ollama_ready,
+    install_ollama,
+    is_model_pulled,
+    is_ollama_installed,
+    is_ollama_running,
+    pull_model,
+    start_ollama_background,
+)
 from bookrag.services import BookRAGService
 from bookrag.settings import AppSettings
 from bookrag.workspace import (
@@ -562,12 +571,404 @@ def _run_series(argv: list[str]) -> bool:
     return True
 
 
+def _check_providers(service: BookRAGService, *, allow_setup: bool = True) -> bool:
+    """Check if providers with models exist. If not, prompt for setup. Returns True if providers are available."""
+    if service.has_configured_provider():
+        return True
+    print()
+    print("No LLM provider configured.")
+    if allow_setup:
+        try:
+            do_setup = _prompt_yes_no("Would you like to set one up now?", default=True)
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return False
+        if do_setup:
+            try:
+                _run_init([])
+                return True
+            except (KeyboardInterrupt, EOFError):
+                print("\nSetup cancelled.")
+                return False
+    print("Run 'bookrag init' to configure a provider.")
+    return False
+
+
+def _run_init(argv: list[str]) -> None:
+    """Interactive provider setup wizard."""
+    service = _local_service()
+    all_providers = service.list_providers()
+    configured = [p for p in all_providers if p.get("default_embedding_model")]
+
+    print()
+    print("=" * 56)
+    print("   Welcome to ChapterKey! Let's set up your LLM provider.")
+    print("=" * 56)
+    print()
+
+    if configured:
+        print("Configured providers:")
+        for p in configured:
+            print(f"  - {p['name']} ({p['provider_type']}) [id={p['id']}]")
+        print()
+        try:
+            add_another = _prompt_yes_no("Add another provider?", default=False)
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+        if not add_another:
+            return
+
+    print("How do you want to run ChapterKey?")
+    print()
+    print("  1) Ollama        (local, free, private)")
+    print("  2) OpenRouter    (cloud, 200+ models, pay-per-use)")
+    print("  3) Custom        (NVIDIA NIM, Mistral, or any OpenAI-compatible API)")
+    print()
+
+    try:
+        choice = _prompt("Choose [1-3]", "1")
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    if choice == "1":
+        _init_ollama(service)
+    elif choice == "2":
+        _init_openrouter(service)
+    elif choice == "3":
+        _init_custom(service)
+    else:
+        print(f"Invalid choice: {choice}")
+        return
+
+    library = service.ensure_default_library()
+    print()
+    print(f"Default library '{library['name']}' is ready (id={library['id']}).")
+    print()
+    print("Next steps:")
+    print(f"  1. Place books in: {service.settings.input_dir}")
+    print(f"  2. Run: bookrag local scan --library-id {library['id']}")
+    print(f"  3. Query: bookrag local query --library-id {library['id']} --question \"What happens?\"")
+    print()
+
+
+def _prompt_optional(prompt: str, default: str | None = None) -> str | None:
+    """Prompt for an optional value. Empty input returns None."""
+    suffix = f" [{default}]" if default else " [skip]"
+    value = input(f"{prompt}{suffix}: ").strip()
+    if value:
+        return value
+    return default
+
+
+def _init_ollama(service: BookRAGService) -> None:
+    """Interactive Ollama provider setup."""
+    print()
+    print("--- Ollama Setup ---")
+    print()
+
+    if not is_ollama_installed():
+        try:
+            do_install = _prompt_yes_no(
+                "Ollama is not installed. Install it now? (uses official install script)",
+                default=True,
+            )
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+        if do_install:
+            if not install_ollama():
+                print("Ollama installation failed. You can install it manually from https://ollama.com")
+                print("Then re-run: bookrag init")
+                return
+        else:
+            print("Install Ollama from https://ollama.com and re-run: bookrag init")
+            return
+
+    if not is_ollama_running():
+        print("Starting Ollama server...")
+        start_ollama_background()
+        if not is_ollama_running():
+            print("Could not start Ollama server. Try running 'ollama serve' in another terminal.")
+            print("Then re-run: bookrag init")
+            return
+
+    try:
+        embed_model = _prompt("Embedding model", "nomic-embed-text")
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    models_to_pull = []
+    if embed_model and not is_model_pulled(embed_model):
+        models_to_pull.append(embed_model)
+
+    if models_to_pull:
+        print()
+        try:
+            do_pull = _prompt_yes_no(
+                f"Pull {len(models_to_pull)} model(s): {', '.join(models_to_pull)}?",
+                default=True,
+            )
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+        if do_pull:
+            for model in models_to_pull:
+                pull_model(model)
+        else:
+            print("You can pull models later with: ollama pull <model-name>")
+
+    _upsert_provider_safe(
+        service,
+        name="Ollama",
+        provider_type="ollama",
+        api_key="ollama",
+        default_embedding_model=embed_model,
+    )
+    print()
+    print("Provider 'Ollama' configured.")
+    print(f"  Embedding model: {embed_model}")
+
+
+def _init_openrouter(service: BookRAGService) -> None:
+    """Interactive OpenRouter provider setup."""
+    print()
+    print("--- OpenRouter Setup ---")
+    print()
+    print("Get an API key at: https://openrouter.ai/keys")
+    print()
+
+    try:
+        api_key = _prompt("OpenRouter API key", secret=True)
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    if not api_key:
+        print("API key is required for OpenRouter.")
+        return
+
+    try:
+        base_url = _prompt("Base URL", "https://openrouter.ai/api/v1")
+        embed_model = _prompt("Embedding model", "openai/text-embedding-3-small")
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    _validate_and_save(
+        service, name="OpenRouter", provider_type="openrouter",
+        base_url=base_url, api_key=api_key, embed_model=embed_model,
+    )
+
+
+
+_CUSTOM_PRESETS: list[dict[str, str]] = [
+    {
+        "label": "NVIDIA NIM  (build.nvidia.com, free)",
+        "name": "NVIDIA NIM",
+        "provider_type": "nvidia_nim",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "embed_model": "nvidia/llama-3.2-nv-embedqa-1b-v2",
+        "needs_api_key": "yes",
+        "api_key_hint": "Get a free key at https://build.nvidia.com/ (click 'Get API Key')",
+    },
+    {
+        "label": "Mistral     (mistral.ai)",
+        "name": "Mistral",
+        "provider_type": "openai_compatible",
+        "base_url": "https://api.mistral.ai/v1",
+        "embed_model": "mistral-embed",
+        "needs_api_key": "yes",
+        "api_key_hint": "Get an API key at https://console.mistral.ai/",
+    },
+    {
+        "label": "Other       (manual setup)",
+        "name": "",
+        "provider_type": "",
+        "base_url": "",
+        "embed_model": "",
+        "needs_api_key": "maybe",
+        "api_key_hint": "",
+    },
+]
+
+
+def _init_custom(service: BookRAGService) -> None:
+    """Interactive custom endpoint setup with presets."""
+    print()
+    print("--- Custom Endpoint ---")
+    print()
+    print("Choose a provider preset:")
+    print()
+    for i, preset in enumerate(_CUSTOM_PRESETS, 1):
+        print(f"  {i}) {preset['label']}")
+    print()
+
+    try:
+        preset_choice = _prompt(f"Choose [1-{len(_CUSTOM_PRESETS)}]", str(len(_CUSTOM_PRESETS)))
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    idx = int(preset_choice) - 1
+    if idx < 0 or idx >= len(_CUSTOM_PRESETS):
+        print(f"Invalid choice: {preset_choice}")
+        return
+
+    preset = _CUSTOM_PRESETS[idx]
+    is_manual = preset["provider_type"] == ""
+
+    if is_manual:
+        return _init_custom_manual(service)
+
+    print()
+    print(f"--- {preset['name']} Setup ---")
+    if preset["api_key_hint"]:
+        print(f"  {preset['api_key_hint']}")
+    print()
+
+    try:
+        api_key = _prompt("API key", secret=True)
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    if not api_key and preset["needs_api_key"] == "yes":
+        print("API key is required.")
+        return
+
+    try:
+        base_url = _prompt("Base URL", preset["base_url"])
+        embed_model = _prompt("Embedding model", preset["embed_model"])
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    if not embed_model:
+        print("Embedding model is required.")
+        return
+
+    detected_type = _detect_custom_provider_type(base_url, embed_model)
+
+    _validate_and_save(
+        service, name=preset["name"], provider_type=detected_type,
+        base_url=base_url, api_key=api_key or "none", embed_model=embed_model,
+    )
+
+
+def _init_custom_manual(service: BookRAGService) -> None:
+    """Fully manual custom endpoint setup."""
+    print()
+    print("--- Manual Endpoint Setup ---")
+    print()
+    print("Any OpenAI-compatible API (e.g. LiteLLM, vLLM, LocalAI, etc.)")
+    print()
+
+    try:
+        base_url = _prompt("Base URL (e.g. http://localhost:8080/v1)")
+        api_key = _prompt("API key (leave blank if none)", secret=True)
+        name = _prompt("Provider name", "Custom")
+        embed_model = _prompt("Embedding model name")
+    except (KeyboardInterrupt, EOFError):
+        print()
+        return
+
+    if not base_url:
+        print("Base URL is required.")
+        return
+    if not embed_model:
+        print("Embedding model name is required.")
+        return
+
+    detected_type = _detect_custom_provider_type(base_url, embed_model)
+
+    _validate_and_save(
+        service, name=name, provider_type=detected_type,
+        base_url=base_url, api_key=api_key or "none", embed_model=embed_model,
+    )
+
+
+def _validate_and_save(
+    service: BookRAGService,
+    *,
+    name: str,
+    provider_type: str,
+    base_url: str,
+    api_key: str,
+    embed_model: str,
+) -> None:
+    """Validate an embedding endpoint and save the provider."""
+    print()
+    print(f"Validating {name} connection...")
+    ok, message = _validate_embedding_provider(provider_type, base_url, api_key, embed_model)
+    if ok:
+        print(f"  Connection OK: {message}")
+    else:
+        print(f"  Validation failed: {message}")
+        try:
+            proceed = _prompt_yes_no("Save provider anyway?", default=True)
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
+        if not proceed:
+            return
+
+    _upsert_provider_safe(
+        service,
+        name=name,
+        provider_type=provider_type,
+        api_key=api_key,
+        base_url=base_url,
+        default_embedding_model=embed_model,
+    )
+    print()
+    print(f"Provider '{name}' configured.")
+    print(f"  Embedding model: {embed_model}")
+
+
+def _upsert_provider_safe(
+    service: BookRAGService,
+    *,
+    name: str,
+    provider_type: str,
+    api_key: str,
+    default_embedding_model: str | None = None,
+    base_url: str | None = None,
+) -> None:
+    """Create or update a provider, handling duplicate name conflicts."""
+    try:
+        service.create_provider(
+            name=name,
+            provider_type=provider_type,
+            api_key=api_key,
+            base_url=base_url,
+            default_embedding_model=default_embedding_model,
+        )
+    except ValueError as exc:
+        if "already exists" in str(exc).lower() or "unique" in str(exc).lower():
+            print(f"Provider '{name}' already exists. Updating it with new settings.")
+            service._upsert_provider(
+                name=name,
+                provider_type=provider_type,
+                api_key=api_key,
+                base_url=base_url,
+                default_embedding_model=default_embedding_model,
+            )
+        else:
+            raise
+
+
 def _run_simple_cli(argv: list[str]) -> bool:
     if not argv:
         return False
     command = argv[0]
     if command == "setup":
         _run_setup(argv[1:])
+        return True
+    if command == "init":
+        _run_init(argv[1:])
         return True
     if command == "list":
         _run_list(argv[1:])
@@ -900,6 +1301,10 @@ def main() -> None:
         return
 
     service = _local_service()
+    if args.local_action in {"scan", "watch", "query", "answer"}:
+        if not _check_providers(service):
+            return
+        service = _local_service()
     if args.local_action == "providers":
         if args.action == "sync":
             service.sync_env_providers()
