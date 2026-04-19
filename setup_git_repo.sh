@@ -4,11 +4,11 @@
 
 set -e
 
-echo "=== EPUB RAG MCP Server - Git Setup ==="
+echo "=== ChapterKey - Git Setup ==="
 echo ""
 
 # Configuration
-REPO_NAME="epub-rag-mcp"
+REPO_NAME="chapterkey"
 
 # Colors for output
 RED='\033[0;31m'
@@ -86,7 +86,7 @@ read -p "Press Enter to continue after reviewing..."
 
 echo ""
 echo -e "${GREEN}Step 5: Commit changes${NC}"
-git commit -m "Initial commit: EPUB RAG MCP Server with OpenRouter integration"
+git commit -m "Initial commit: ChapterKey with OpenRouter integration"
 
 echo ""
 echo -e "${GREEN}Step 6: Create private GitHub repository${NC}"
@@ -114,7 +114,7 @@ cat << 'EOF'
    ssh user@your-server-ip
 
 2. Ensure SSH key is on server (gh auth login on server)
-   OR clone with HTTPS: git clone https://github.com/filius-fall/epub-rag-mcp.git
+   OR clone with HTTPS: git clone https://github.com/filius-fall/chapterkey.git
 
 3. Set up the environment:
    python3 -m venv venv

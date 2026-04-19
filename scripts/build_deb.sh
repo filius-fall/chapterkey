@@ -29,10 +29,10 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: ${ARCH}
-Maintainer: BookRAG
+Maintainer: ChapterKey
 Depends: python3, python3-venv
-Description: CLI-first book RAG toolkit for EPUB and PDF indexing
- BookRAG installs a self-contained Python environment and CLI tools for
+Description: ChapterKey CLI-first book retrieval toolkit for EPUB and PDF indexing
+ ChapterKey installs a self-contained Python environment and CLI tools for
  ingesting books into a local vector database with spoiler-aware retrieval.
 EOF
 

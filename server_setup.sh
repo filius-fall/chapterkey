@@ -1,10 +1,10 @@
 #!/bin/bash
-# Script to set up EPUB RAG MCP Server on a remote server
+# Script to set up ChapterKey on a remote server
 # Usage: Run this script after cloning the repo on your server
 
 set -e
 
-echo "=== EPUB RAG MCP Server Setup on Server ==="
+echo "=== ChapterKey Setup on Server ==="
 echo ""
 
 # Colors
@@ -60,9 +60,9 @@ echo ""
 echo -e "${GREEN}Step 6: Update MCP config for remote access${NC}"
 cat > /tmp/mcp_launch.sh << 'EOF'
 #!/bin/bash
-cd /home/sreeram/epub-rag-mcp
-source /home/sreeram/epub-rag-mcp/venv/bin/activate
-exec /home/sreeram/epub-rag-mcp/venv/bin/python /home/sreeram/epub-rag-mcp/server.py
+cd /home/sreeram/chapterkey
+source /home/sreeram/chapterkey/venv/bin/activate
+exec /home/sreeram/chapterkey/venv/bin/python /home/sreeram/chapterkey/server.py
 EOF
 chmod +x /tmp/mcp_launch.sh
 
@@ -89,9 +89,9 @@ echo ""
 cat << 'EOF'
 {
   "mcpServers": {
-    "epub-rag-mcp": {
+    "bookrag": {
       "command": "/bin/bash",
-      "args": ["/home/sreeram/epub-rag-mcp/venv/bin/python", "/home/sreeram/epub-rag-mcp/server.py"]
+      "args": ["/home/sreeram/chapterkey/venv/bin/python", "/home/sreeram/chapterkey/server.py"]
     }
   }
 }

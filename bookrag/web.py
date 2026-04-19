@@ -112,7 +112,7 @@ def render_setup_page(message: str | None = None) -> str:
     flash = f'<div class="flash error">{escape(message)}</div>' if message else ""
     body = f"""
     <div class="card" style="max-width:520px;margin:80px auto;">
-      <h1>BookRAG Setup</h1>
+      <h1>ChapterKey Setup</h1>
       <p class="muted">Create the single admin account for this deployment.</p>
       {flash}
       <form method="post" action="/setup">
@@ -124,14 +124,14 @@ def render_setup_page(message: str | None = None) -> str:
       </form>
     </div>
     """
-    return _layout("BookRAG Setup", body)
+    return _layout("ChapterKey Setup", body)
 
 
 def render_login_page(message: str | None = None) -> str:
     flash = f'<div class="flash error">{escape(message)}</div>' if message else ""
     body = f"""
     <div class="card" style="max-width:520px;margin:80px auto;">
-      <h1>BookRAG Login</h1>
+      <h1>ChapterKey Login</h1>
       <p class="muted">Sign in to manage books, providers, and chat sessions.</p>
       {flash}
       <form method="post" action="/login">
@@ -143,7 +143,7 @@ def render_login_page(message: str | None = None) -> str:
       </form>
     </div>
     """
-    return _layout("BookRAG Login", body)
+    return _layout("ChapterKey Login", body)
 
 
 def render_dashboard(
@@ -258,7 +258,7 @@ def render_dashboard(
     body = f"""
     <div class="hero">
       <div class="card">
-        <h1>BookRAG Application</h1>
+        <h1>ChapterKey</h1>
         <p class="muted">Upload books, pick your own provider keys and models, chat with spoiler boundaries, and expose the same library over REST and MCP.</p>
       </div>
       <div class="card">
@@ -349,4 +349,4 @@ def render_dashboard(
       <div class="list">{job_items or "<div class='item muted'>No jobs yet.</div>"}</div>
     </div>
     """
-    return _layout("BookRAG", body)
+    return _layout("ChapterKey", body)

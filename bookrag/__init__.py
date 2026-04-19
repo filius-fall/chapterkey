@@ -1,6 +1,8 @@
-"""BookRAG application package."""
+"""ChapterKey application package."""
 
 __version__ = "2.0.0"
+__update_repo__ = "filius-fall/chapterkey"
+__default_branch__ = "master"
 
 
 def create_app():
@@ -10,4 +12,4 @@ def create_app():
     return factory()
 
 
-__all__ = ["create_app", "__version__"]
+__all__ = ["create_app", "__version__", "__update_repo__", "__default_branch__"]

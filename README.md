@@ -1,6 +1,6 @@
-# BookRAG
+# ChapterKey
 
-BookRAG is a self-hosted book indexing and retrieval tool for `EPUB` and `PDF` files.
+ChapterKey is a self-hosted book indexing and retrieval tool for `EPUB` and `PDF` files.
 
 It is designed for a CLI-first workflow:
 
@@ -10,7 +10,9 @@ It is designed for a CLI-first workflow:
 - query with spoiler-aware retrieval rules
 - group books into series and restrict retrieval by book/chapter/series boundary
 
-BookRAG can also expose the same indexed books through a web API and MCP server for tools like Claude Code, OpenCode, and similar agent clients.
+ChapterKey can also expose the same indexed books through a web API and MCP server for tools like Claude Code, OpenCode, and similar agent clients.
+
+`ChapterKey` is the product name. The command, Python package, and compatibility surface remain `bookrag`.
 
 ## Features
 
@@ -53,7 +55,7 @@ pip install bookrag
 
 ### Option 2: Debian package
 
-BookRAG currently targets Debian-based Linux best, especially:
+ChapterKey currently targets Debian-based Linux best, especially:
 
 - Debian 12
 - Ubuntu 22.04
@@ -154,7 +156,7 @@ By default this creates:
 ~/Documents/BookRAG/.bookrag
 ```
 
-During setup, BookRAG will:
+During setup, ChapterKey will:
 
 1. Ask whether to use the default `~/Documents/BookRAG` workspace
 2. Let you choose a custom workspace root if you want
@@ -224,7 +226,7 @@ bookrag status
 
 ## Releases
 
-BookRAG release distribution is:
+ChapterKey release distribution is:
 
 - source from the GitHub repo
 - `.deb` from GitHub Releases
@@ -239,11 +241,11 @@ Docker is intentionally not published to any public registry.
 
 ## Input and deletion behavior
 
-BookRAG treats default and custom input folders differently.
+ChapterKey treats default and custom input folders differently.
 
 ### Default managed input
 
-If you use the default workspace input folder, BookRAG treats it as managed.
+If you use the default workspace input folder, ChapterKey treats it as managed.
 
 Behavior:
 
@@ -253,20 +255,20 @@ Behavior:
 
 ### Custom input folder
 
-If you use a custom input folder, BookRAG asks whether originals should be deleted after verified conversion.
+If you use a custom input folder, ChapterKey asks whether originals should be deleted after verified conversion.
 
 Behavior:
 
 - if you choose no:
   - originals stay in the custom input folder
 - if you choose yes:
-  - BookRAG asks one more time per file after verified conversion before deleting it
+  - ChapterKey asks one more time per file after verified conversion before deleting it
 
 If a kept original is already indexed, `bookrag list` shows it as an indexed duplicate instead of plain pending.
 
 ## Output layout
 
-The output folder contains the working BookRAG database:
+The output folder contains the working ChapterKey database:
 
 - `bookrag.sqlite3`
 - `chroma_db/`
@@ -311,8 +313,9 @@ bookrag convert --all --output /path/to/another/output
 
 `bookrag update` uses the current install mode:
 
-- if BookRAG is running from a git checkout, it runs `git pull --ff-only` and reinstalls from the checkout
-- otherwise it runs `python -m pip install --upgrade bookrag`
+- if ChapterKey is running from a git checkout, it runs `git pull --ff-only` and reinstalls from the checkout
+- if ChapterKey is installed as a normal Python package, it upgrades from the GitHub repo using the current Python interpreter
+- if ChapterKey is installed from a `.deb`, it downloads the latest matching `.deb` from GitHub Releases and installs it with `dpkg`
 
 Use `bookrag update --check` to see what it would do without changing anything.
 
@@ -350,7 +353,7 @@ bookrag series list
 
 ### Advanced/local commands
 
-BookRAG still includes the older local/API-oriented CLI surface for direct service usage:
+ChapterKey still includes the older local/API-oriented CLI surface for direct service usage:
 
 ```bash
 bookrag local providers sync
@@ -372,7 +375,7 @@ bookrag books ingest --book-id 1 --embedding-provider-id 1 --embedding-model you
 
 ## Spoiler-safe retrieval
 
-BookRAG is designed for both spoiler and no-spoiler reading workflows.
+ChapterKey is designed for both spoiler and no-spoiler reading workflows.
 
 ### Modes
 
@@ -400,7 +403,7 @@ For full spoilers and full context:
 
 ## Series support
 
-BookRAG can infer likely series order from filenames and titles.
+ChapterKey can infer likely series order from filenames and titles.
 
 Examples:
 
@@ -425,7 +428,7 @@ This is useful when the files already contain the volume order and you do not wa
 
 ## Web API and MCP
 
-The main workflow is CLI-first, but BookRAG can also run as an API and MCP backend.
+The main workflow is CLI-first, but ChapterKey can also run as an API and MCP backend.
 
 ### Start API server
 
@@ -458,7 +461,7 @@ The MCP bridge exposes tools like:
 
 ## Agent integrations
 
-When you run `bookrag setup`, BookRAG generates an integration bundle in:
+When you run `bookrag setup`, ChapterKey generates an integration bundle in:
 
 ```text
 <workspace>/.bookrag/integrations/
@@ -471,7 +474,7 @@ That folder includes:
 - `opencode.mcp.json`
 - `INSTALL_AGENTS.md`
 
-These files are intended to help connect BookRAG to:
+These files are intended to help connect ChapterKey to:
 
 - Claude Code
 - OpenCode
@@ -480,11 +483,11 @@ These files are intended to help connect BookRAG to:
 
 Recommended external-agent workflow:
 
-1. connect through BookRAG API or MCP
+1. connect through ChapterKey API or MCP
 2. call `list_books`
 3. call `suggest_series` when needed
 4. use `query_context` for retrieval
-5. use `answer_question` only if you want BookRAG to call a chat model directly
+5. use `answer_question` only if you want ChapterKey to call a chat model directly
 
 ## Current repo data
 
@@ -499,7 +502,7 @@ That is controlled by `.env`.
 
 ### `bookrag list` shows indexed duplicate
 
-That means the original file still exists in a custom input folder, but BookRAG has already indexed it successfully.
+That means the original file still exists in a custom input folder, but ChapterKey has already indexed it successfully.
 
 ### No workspace found
 

@@ -1,6 +1,6 @@
-# EPUB RAG MCP Server - Deployment Guide
+# ChapterKey Deployment Guide
 
-This guide shows you how to deploy your EPUB RAG MCP Server to a remote server on your local network.
+This guide shows you how to deploy ChapterKey to a remote server on your local network.
 
 ## Overview
 
@@ -53,11 +53,11 @@ EOF
 
 # Add and commit
 git add .
-git commit -m "Initial commit: EPUB RAG MCP Server"
+git commit -m "Initial commit: ChapterKey"
 
 # Create GitHub repo (go to github.com and create a private repo)
 # Then add remote and push:
-git remote add origin https://github.com/YOUR_USERNAME/epub-rag-mcp.git
+git remote add origin https://github.com/YOUR_USERNAME/chapterkey.git
 git push -u origin main
 ```
 
@@ -75,8 +75,8 @@ ssh user@your-server-ip
 ### Step 2: Clone the Repository
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/epub-rag-mcp.git
-cd epub-rag-mcp
+git clone https://github.com/YOUR_USERNAME/chapterkey.git
+cd chapterkey
 ```
 
 ### Step 3: Run Server Setup Script
@@ -97,7 +97,7 @@ This script will:
 The server should start and show:
 ```
 All components initialized successfully
-Starting EPUB RAG MCP Server...
+Starting ChapterKey...
 Use MCP tools to load and query EPUB files
 ```
 
@@ -115,9 +115,9 @@ Add this to Opencode's config file (e.g., `~/.claude.json` or Opencode settings)
 {
   "numStartups": 100,
   "mcpServers": {
-    "epub-rag-mcp": {
+    "bookrag": {
       "command": "ssh",
-      "args": ["-t", "user@your-server-ip", "/home/sreeram/epub-rag-mcp/venv/bin/python", "/home/sreeram/epub-rag-mcp/server.py"]
+      "args": ["-t", "user@your-server-ip", "/home/sreeram/chapterkey/venv/bin/python", "/home/sreeram/chapterkey/server.py"]
     }
   },
   "autoUpdates": false
@@ -137,9 +137,9 @@ ssh -L 8000:localhost:8000 user@your-server-ip -N
 ```json
 {
   "mcpServers": {
-    "epub-rag-mcp": {
+    "bookrag": {
       "command": "ssh",
-      "args": ["-o", "ExitOnForwardFailure=yes", "-L", "8000:localhost:8000", "user@localhost", "/home/sreeram/epub-rag-mcp/venv/bin/python", "/home/sreeram/epub-rag-mcp/server.py"]
+      "args": ["-o", "ExitOnForwardFailure=yes", "-L", "8000:localhost:8000", "user@localhost", "/home/sreeram/chapterkey/venv/bin/python", "/home/sreeram/chapterkey/server.py"]
     }
   }
 }
@@ -150,19 +150,19 @@ ssh -L 8000:localhost:8000 user@your-server-ip -N
 On your server, create a systemd service:
 
 ```bash
-sudo nano /etc/systemd/system/epub-rag-mcp.service
+sudo nano /etc/systemd/system/chapterkey.service
 ```
 
 ```ini
 [Unit]
-Description=EPUB RAG MCP Server
+Description=ChapterKey
 After=network.target
 
 [Service]
 Type=simple
 User=sreeram
-WorkingDirectory=/home/sreeram/epub-rag-mcp
-ExecStart=/home/sreeram/epub-rag-mcp/venv/bin/python /home/sreeram/epub-rag-mcp/server.py
+WorkingDirectory=/home/sreeram/chapterkey
+ExecStart=/home/sreeram/chapterkey/venv/bin/python /home/sreeram/chapterkey/server.py
 Restart=always
 RestartSec=5
 
@@ -172,9 +172,9 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable epub-rag-mcp
-sudo systemctl start epub-rag-mcp
-sudo systemctl status epub-rag-mcp
+sudo systemctl enable chapterkey
+sudo systemctl start chapterkey
+sudo systemctl status chapterkey
 ```
 
 ---
@@ -185,16 +185,16 @@ sudo systemctl status epub-rag-mcp
 
 ```bash
 # Copy new EPUB to server
-scp Myst,_Might,_and_Mayhem.epub user@your-server-ip:/home/sreeram/epub-rag-mcp/
+scp Myst,_Might,_and_Mayhem.epub user@your-server-ip:/home/sreeram/chapterkey/
 
 # Or use rsync for multiple files
-rsync -avz *.epub user@your-server-ip:/home/sreeram/epub-rag-mcp/
+rsync -avz *.epub user@your-server-ip:/home/sreeram/chapterkey/
 ```
 
 ### On Your Server:
 
 ```bash
-cd ~/epub-rag-mcp
+cd ~/chapterkey
 
 # Generate embeddings for the new EPUB
 python complete_embeddings.py
@@ -211,7 +211,7 @@ python test_epub.py
 
 ```bash
 # On server
-cd ~/epub-rag-mcp
+cd ~/chapterkey
 git pull
 ```
 
@@ -219,7 +219,7 @@ git pull
 
 ```bash
 # From local to server (after generating embeddings)
-rsync -avz data/chroma_db/ user@your-server-ip:/home/sreeram/epub-rag-mcp/data/chroma_db/
+rsync -avz data/chroma_db/ user@your-server-ip:/home/sreeram/chapterkey/data/chroma_db/
 ```
 
 ### View Server Logs
@@ -229,7 +229,7 @@ rsync -avz data/chroma_db/ user@your-server-ip:/home/sreeram/epub-rag-mcp/data/c
 tail -f server.log
 
 # If running as systemd service
-sudo journalctl -u epub-rag-mcp -f
+sudo journalctl -u chapterkey -f
 ```
 
 ---
@@ -247,7 +247,7 @@ echo "OPENROUTER_API_KEY=your_key_here" > .env
 
 Check the file path is correct:
 ```bash
-ls -la /home/sreeram/epub-rag-mcp/
+ls -la /home/sreeram/chapterkey/
 ```
 
 ### Error: Server starts but crashes
@@ -256,7 +256,7 @@ Check the logs:
 ```bash
 python server.py
 # Or check systemd logs
-sudo journalctl -u epub-rag-mcp -n 50
+sudo journalctl -u chapterkey -n 50
 ```
 
 ### Connection timeout from Opencode
@@ -278,8 +278,8 @@ cd /home/sreeram/Projects/BookRAG
 **Server:**
 ```bash
 ssh user@your-server-ip
-git clone https://github.com/YOUR_USERNAME/epub-rag-mcp.git
-cd epub-rag-mcp
+git clone https://github.com/YOUR_USERNAME/chapterkey.git
+cd chapterkey
 ./server_setup.sh
 ```
 
@@ -287,9 +287,9 @@ cd epub-rag-mcp
 ```json
 {
   "mcpServers": {
-    "epub-rag-mcp": {
+    "bookrag": {
       "command": "ssh",
-      "args": ["-t", "user@your-server-ip", "/home/sreeram/epub-rag-mcp/venv/bin/python", "/home/sreeram/epub-rag-mcp/server.py"]
+      "args": ["-t", "user@your-server-ip", "/home/sreeram/chapterkey/venv/bin/python", "/home/sreeram/chapterkey/server.py"]
     }
   }
 }

@@ -25,7 +25,7 @@ After setup:
 3. Run `bookrag convert 1` or `bookrag convert --all`.
 4. Inspect output in the workspace output folder.
 
-If you choose custom folders during setup, BookRAG validates them before saving the workspace.
+If you choose custom folders during setup, ChapterKey validates them before saving the workspace.
 
 Deletion behavior:
 
@@ -53,7 +53,7 @@ Use `bookrag series suggest` when filenames contain markers like `Vol 01`, `Book
 
 ## Agent Workflow
 
-If you want Claude Code, OpenCode, or Factory Droid to use BookRAG:
+If you want Claude Code, OpenCode, or Factory Droid to use ChapterKey:
 
 1. Start the API:
 

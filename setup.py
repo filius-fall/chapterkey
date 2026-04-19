@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Setup script for the BookRAG application."""
+"""Setup script for the ChapterKey application."""
 
 from pathlib import Path
 
@@ -16,9 +16,14 @@ setup(
     name="bookrag",
     version="2.0.0",
     author="OpenAI Codex",
-    description="Self-hosted book RAG application with web UI, REST API, CLI, and MCP bridge",
+    url="https://github.com/filius-fall/chapterkey",
+    description="ChapterKey: self-hosted book indexing and retrieval with web UI, REST API, CLI, and MCP bridge",
     long_description=long_description,
     long_description_content_type="text/markdown",
+    project_urls={
+        "Source": "https://github.com/filius-fall/chapterkey",
+        "Issues": "https://github.com/filius-fall/chapterkey/issues",
+    },
     packages=find_packages(),
     python_requires=">=3.9",
     install_requires=requirements,

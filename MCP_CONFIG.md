@@ -1,6 +1,8 @@
-# BookRAG MCP Configuration
+# ChapterKey MCP Configuration
 
-BookRAG exposes a stable MCP server so external agent tools can use the same indexed books without reading Chroma files directly.
+ChapterKey exposes a stable MCP server so external agent tools can use the same indexed books without reading Chroma files directly.
+
+`ChapterKey` is the product name. The MCP server command and package names remain `bookrag` for compatibility.
 
 ## Supported Client Types
 
@@ -11,7 +13,7 @@ BookRAG exposes a stable MCP server so external agent tools can use the same ind
 
 ## Start the Backend
 
-Run the BookRAG API first:
+Run the ChapterKey API first:
 
 ```bash
 source venv/bin/activate
@@ -33,7 +35,7 @@ python server.py
   "mcpServers": {
     "bookrag": {
       "command": "python",
-      "args": ["/absolute/path/to/BookRAG/server.py"],
+      "args": ["/absolute/path/to/chapterkey/server.py"],
       "env": {
         "BOOKRAG_API_URL": "http://127.0.0.1:8000",
         "BOOKRAG_API_TOKEN": "your-api-token"
@@ -45,7 +47,7 @@ python server.py
 
 ## Generated Workspace Bundle
 
-If you used `bookrag setup`, BookRAG writes agent integration files into:
+If you used `bookrag setup`, ChapterKey writes agent integration files into:
 
 ```text
 .bookrag/integrations/
@@ -79,7 +81,7 @@ The MCP bridge exposes these agent-friendly tools:
 3. If books appear to be part of a series, call `suggest_series`.
 4. Ask the user to confirm any ambiguous series order.
 5. Use `query_context` with spoiler controls for retrieval.
-6. Use `answer_question` only when you want BookRAG itself to call a chat model.
+6. Use `answer_question` only when you want ChapterKey itself to call a chat model.
 
 ## REST Fallback
 

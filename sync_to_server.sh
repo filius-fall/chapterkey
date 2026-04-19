@@ -1,13 +1,13 @@
 #!/bin/bash
-# Sync script for EPUB RAG MCP Server
+# Sync script for ChapterKey
 # Usage: ./sync_to_server.sh
 
 set -e
 
 SERVER="user@your-server"
-REMOTE_PATH="~/epub-rag-mcp"
+REMOTE_PATH="~/chapterkey"
 
-echo "Syncing EPUB RAG MCP to server..."
+echo "Syncing ChapterKey to server..."
 
 # Sync EPUB files
 echo "Syncing EPUB files..."

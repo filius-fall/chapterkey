@@ -1,6 +1,8 @@
 # Linux Installation
 
-BookRAG is currently packaged for **Debian 12** and **Ubuntu 22.04/24.04** on `amd64`.
+ChapterKey is currently packaged for **Debian 12** and **Ubuntu 22.04/24.04** on `amd64`.
+
+`ChapterKey` is the product name. The installed commands remain `bookrag`, `bookrag-api`, and `bookrag-mcp`.
 
 The user experience is CLI-first. After install, the main command is:
 

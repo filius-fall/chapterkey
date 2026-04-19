@@ -1,20 +1,22 @@
-"""CLI wrapper for REST and local BookRAG workflows."""
+"""CLI wrapper for REST and local ChapterKey workflows."""
 
 from __future__ import annotations
 
 import argparse
+import platform
 import getpass
 import json
 import secrets
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import requests
 
-from bookrag import __version__
+from bookrag import __default_branch__, __update_repo__, __version__
 from bookrag.folder_ingest import FolderIngestor, LocalIngestConfig, SKIP_SUFFIXES, SUPPORTED_EXTENSIONS
 from bookrag.services import BookRAGService
 from bookrag.settings import AppSettings
@@ -211,13 +213,59 @@ def _source_checkout_root() -> Path | None:
     return None
 
 
+def _github_release_metadata() -> dict[str, Any]:
+    repo = __update_repo__
+    response = requests.get(f"https://api.github.com/repos/{repo}/releases/latest", timeout=60)
+    response.raise_for_status()
+    return response.json()
+
+
+def _deb_arch() -> str:
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return "amd64"
+    raise ValueError(f"Unsupported architecture for .deb self-update: {machine}")
+
+
+def _is_deb_install() -> bool:
+    result = subprocess.run(["dpkg-query", "-W", "-f=${Status}", "bookrag"], capture_output=True, text=True, check=False)
+    return result.returncode == 0 and "install ok installed" in result.stdout
+
+
+def _deb_asset_url(release: dict[str, Any]) -> tuple[str, str]:
+    arch = _deb_arch()
+    expected_suffix = f"_{arch}.deb"
+    for asset in release.get("assets", []):
+        name = str(asset.get("name", ""))
+        if name.startswith("bookrag_") and name.endswith(expected_suffix):
+            return name, str(asset["browser_download_url"])
+    raise ValueError(f"No .deb asset found for architecture {arch} in the latest release")
+
+
+def _download_file(url: str, destination: Path) -> None:
+    with requests.get(url, stream=True, timeout=300) as response:
+        response.raise_for_status()
+        with destination.open("wb") as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    handle.write(chunk)
+
+
 def _run_update(argv: list[str]) -> None:
-    parser = argparse.ArgumentParser(prog="bookrag update", description="Update BookRAG to the latest available code")
+    parser = argparse.ArgumentParser(prog="bookrag update", description="Update ChapterKey to the latest available code")
     parser.add_argument("--check", action="store_true", help="Show the detected update strategy without changing anything")
+    parser.add_argument("--branch", default=__default_branch__, help="Git branch to use for pip/source updates")
     args = parser.parse_args(argv)
 
     source_root = _source_checkout_root()
-    if source_root is not None:
+    release = None
+    if _is_deb_install():
+        release = _github_release_metadata()
+        asset_name, asset_url = _deb_asset_url(release)
+        strategy = "debian-release"
+        commands = []
+        workdir = Path.cwd()
+    elif source_root is not None:
         strategy = "git-checkout"
         commands = [
             ["git", "pull", "--ff-only"],
@@ -226,39 +274,59 @@ def _run_update(argv: list[str]) -> None:
         workdir = source_root
     else:
         strategy = "pip-package"
+        repo_url = f"git+https://github.com/{__update_repo__}.git@{args.branch}"
         commands = [
-            [sys.executable, "-m", "pip", "install", "--upgrade", "bookrag"],
+            [sys.executable, "-m", "pip", "install", "--upgrade", repo_url],
         ]
         workdir = Path.cwd()
 
-    print(f"Current BookRAG version: {__version__}")
+    print(f"Current ChapterKey version: {__version__}")
     print(f"Update strategy: {strategy}")
-    for command in commands:
-        print("Command:", " ".join(command))
+    if strategy == "debian-release":
+        print(f"Latest release tag: {release.get('tag_name')}")
+        print(f"Release asset: {asset_name}")
+        print(f"Download URL: {asset_url}")
+        sudo_prefix = "sudo " if shutil.which("sudo") else ""
+        print(f"Command: {sudo_prefix}dpkg -i {asset_name}")
+    else:
+        for command in commands:
+            print("Command:", " ".join(command))
 
     if args.check:
+        return
+
+    if strategy == "debian-release":
+        sudo_cmd = ["sudo"] if shutil.which("sudo") else []
+        with tempfile.TemporaryDirectory(prefix="bookrag-update-") as temp_dir:
+            target = Path(temp_dir) / asset_name
+            print(f"Downloading {asset_name}...")
+            _download_file(asset_url, target)
+            completed = subprocess.run([*sudo_cmd, "dpkg", "-i", str(target)], cwd=workdir, check=False, text=True)
+            if completed.returncode != 0:
+                raise ValueError(f"Update failed while installing: {' '.join([*sudo_cmd, 'dpkg', '-i', str(target)])}")
+        print("Update completed. Restart ChapterKey commands to use the latest installed code.")
         return
 
     for command in commands:
         completed = subprocess.run(command, cwd=workdir, check=False, text=True)
         if completed.returncode != 0:
             raise ValueError(f"Update failed while running: {' '.join(command)}")
-    print("Update completed. Restart BookRAG commands to use the latest installed code.")
+    print("Update completed. Restart ChapterKey commands to use the latest installed code.")
 
 
 def _run_setup(argv: list[str]) -> None:
-    parser = argparse.ArgumentParser(prog="bookrag setup", description="Initialize a BookRAG workspace")
+    parser = argparse.ArgumentParser(prog="bookrag setup", description="Initialize a ChapterKey workspace")
     parser.parse_args(argv)
 
     suggested_root = default_workspace_root()
-    print(f"Default BookRAG workspace: {suggested_root}")
+    print(f"Default ChapterKey workspace: {suggested_root}")
     use_default_root = _prompt_yes_no("Use the default workspace in Documents?", default=True)
     root = _prompt_directory("Workspace root", suggested_root if use_default_root else Path.cwd())
     ensure_workspace_dirs(root)
     use_default_io = _prompt_yes_no("Use default input/output folders inside the workspace root?", default=True)
     default_in = default_input_dir(root)
     default_out = default_output_dir(root)
-    print(f"Setting up BookRAG workspace in {root}")
+    print(f"Setting up ChapterKey workspace in {root}")
     if use_default_io:
         input_dir = _validate_directory_candidate(default_in)
         output_dir = _validate_directory_candidate(default_out)
@@ -570,7 +638,7 @@ def main() -> None:
     if _run_simple_cli(sys.argv[1:]):
         return
 
-    parser = argparse.ArgumentParser(prog="bookrag", description="BookRAG REST and local CLI")
+    parser = argparse.ArgumentParser(prog="bookrag", description="ChapterKey REST and local CLI")
     parser.add_argument("--base-url", help="Override API base URL for this invocation")
     subparsers = parser.add_subparsers(dest="command", required=True)
 

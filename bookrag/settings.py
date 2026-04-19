@@ -21,7 +21,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class AppSettings:
-    """Settings for the BookRAG application."""
+    """Settings for the ChapterKey application."""
 
     app_name: str
     app_secret: str
@@ -80,7 +80,7 @@ class AppSettings:
         input_dir = Path(input_dir_raw).expanduser().resolve()
 
         settings = cls(
-            app_name=os.getenv("BOOKRAG_APP_NAME", "BookRAG"),
+            app_name=os.getenv("BOOKRAG_APP_NAME", "ChapterKey"),
             app_secret=os.getenv("BOOKRAG_APP_SECRET", "change-me-bookrag-secret"),
             data_dir=data_dir,
             input_dir=input_dir,

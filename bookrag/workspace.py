@@ -1,4 +1,4 @@
-"""Workspace configuration helpers for the simple BookRAG CLI."""
+"""Workspace configuration helpers for the simple ChapterKey CLI."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def load_workspace(root: Path | None = None) -> tuple[Path, dict[str, Any], dict
     """Load workspace config and secrets."""
     found = root or find_workspace_root()
     if not found:
-        raise ValueError("No BookRAG workspace found. Run `bookrag setup` in this directory first.")
+        raise ValueError("No ChapterKey workspace found. Run `bookrag setup` in this directory first.")
     config_file = config_path(found)
     secrets_file = secrets_path(found)
     if not config_file.exists():
@@ -107,9 +107,9 @@ def write_integration_bundle(root: Path, config: dict[str, Any]) -> Path:
 
     project_root = Path(__file__).resolve().parent.parent
     api_url = os.getenv("BOOKRAG_API_URL", f"http://127.0.0.1:{os.getenv('BOOKRAG_API_PORT', '8000')}")
-    skill_text = f"""# BookRAG Workspace Skill
+    skill_text = f"""# ChapterKey Workspace Skill
 
-Use this BookRAG workspace as the retrieval backend for books instead of loading entire books directly into the coding agent.
+Use this ChapterKey workspace as the retrieval backend for books instead of loading entire books directly into the coding agent.
 
 ## Workspace
 
@@ -120,7 +120,7 @@ Use this BookRAG workspace as the retrieval backend for books instead of loading
 
 ## Agent Workflow
 
-1. Use the BookRAG MCP server or REST API instead of reading raw vector files.
+1. Use the ChapterKey MCP server or REST API instead of reading raw vector files.
 2. Call `list_libraries` and `list_books` first.
 3. For spoiler-safe reading, prefer `query_context` with:
    - `context_mode=\"no_spoiler\"`
@@ -136,7 +136,7 @@ If the suggestion is ambiguous, ask the user for confirmation instead of guessin
 
 ## Installation Notes
 
-- Start the BookRAG API if the agent will talk through MCP.
+- Start the ChapterKey API if the agent will talk through MCP.
 - The MCP server entrypoint is `{project_root / "server.py"}`.
 - The API base URL is currently `{api_url}`.
 """
@@ -157,7 +157,7 @@ If the suggestion is ambiguous, ask the user for confirmation instead of guessin
     (bundle_dir / "claude-code.mcp.json").write_text(json.dumps(claude_config, indent=2))
     (bundle_dir / "opencode.mcp.json").write_text(json.dumps(claude_config, indent=2))
 
-    install_text = f"""# BookRAG Agent Integrations
+    install_text = f"""# ChapterKey Agent Integrations
 
 Generated for workspace: `{root}`
 
@@ -219,7 +219,7 @@ def _print_json(data):
 
 def main() -> None:
     manifest = load_output_bundle(Path(__file__).resolve().parent)
-    parser = argparse.ArgumentParser(prog="bookrag_output_api", description="Direct helper for a specific BookRAG output folder")
+    parser = argparse.ArgumentParser(prog="bookrag_output_api", description="Direct helper for a specific ChapterKey output folder")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("status")

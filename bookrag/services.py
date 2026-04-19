@@ -1,4 +1,4 @@
-"""Shared application service layer for BookRAG."""
+"""Shared application service layer for ChapterKey."""
 
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ class BookRAGService:
             return library
         library_id = self.db.execute(
             "INSERT INTO libraries(name, description, created_at) VALUES (?, ?, ?)",
-            (self.settings.default_library_name, "Default self-hosted BookRAG library", utc_now()),
+            (self.settings.default_library_name, "Default self-hosted ChapterKey library", utc_now()),
         )
         return self.get_library(library_id)
 
