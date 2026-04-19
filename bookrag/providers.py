@@ -31,7 +31,13 @@ class ProviderError(RuntimeError):
 class BaseProvider:
     """Provider interface."""
 
-    def embed_texts(self, config: ProviderConfig, model: str, texts: list[str]) -> list[list[float]]:
+    def embed_texts(
+        self,
+        config: ProviderConfig,
+        model: str,
+        texts: list[str],
+        purpose: str = "document",
+    ) -> list[list[float]]:
         raise NotImplementedError
 
     def chat(
@@ -56,14 +62,26 @@ class BaseProvider:
 class OpenAICompatibleProvider(BaseProvider):
     """Generic OpenAI-compatible provider."""
 
+    default_base_url = "https://openrouter.ai/api/v1"
+
     def _base_url(self, config: ProviderConfig) -> str:
-        return (config.base_url or "https://openrouter.ai/api/v1").rstrip("/")
+        return (config.base_url or self.default_base_url).rstrip("/")
 
     def _headers(self, config: ProviderConfig) -> dict[str, str]:
-        return {"Authorization": f"Bearer {config.api_key}", "Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json"}
+        if config.api_key:
+            headers["Authorization"] = f"Bearer {config.api_key}"
+        return headers
 
-    def embed_texts(self, config: ProviderConfig, model: str, texts: list[str]) -> list[list[float]]:
+    def embed_texts(
+        self,
+        config: ProviderConfig,
+        model: str,
+        texts: list[str],
+        purpose: str = "document",
+    ) -> list[list[float]]:
         """Generate embeddings with batching to handle large inputs."""
+        del purpose
         batch_size = 50
         all_embeddings: list[list[float]] = []
         
@@ -140,6 +158,24 @@ class OpenAICompatibleProvider(BaseProvider):
         )
 
 
+class OllamaProvider(OpenAICompatibleProvider):
+    """Ollama OpenAI-compatible provider."""
+
+    default_base_url = "http://127.0.0.1:11434/v1"
+
+    def _headers(self, config: ProviderConfig) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if config.api_key and config.api_key not in {"", "ollama"}:
+            headers["Authorization"] = f"Bearer {config.api_key}"
+        return headers
+
+
+class OpenRouterProvider(OpenAICompatibleProvider):
+    """OpenRouter provider."""
+
+    default_base_url = "https://openrouter.ai/api/v1"
+
+
 class AnthropicProvider(BaseProvider):
     """Anthropic chat and vision provider."""
 
@@ -150,7 +186,14 @@ class AnthropicProvider(BaseProvider):
             "content-type": "application/json",
         }
 
-    def embed_texts(self, config: ProviderConfig, model: str, texts: list[str]) -> list[list[float]]:
+    def embed_texts(
+        self,
+        config: ProviderConfig,
+        model: str,
+        texts: list[str],
+        purpose: str = "document",
+    ) -> list[list[float]]:
+        del config, model, texts, purpose
         raise ProviderError("Anthropic does not provide embeddings in this application")
 
     def chat(
@@ -223,7 +266,14 @@ class GoogleProvider(BaseProvider):
         base = (config.base_url or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
         return f"{base}/{suffix}?key={config.api_key}"
 
-    def embed_texts(self, config: ProviderConfig, model: str, texts: list[str]) -> list[list[float]]:
+    def embed_texts(
+        self,
+        config: ProviderConfig,
+        model: str,
+        texts: list[str],
+        purpose: str = "document",
+    ) -> list[list[float]]:
+        del purpose
         embeddings: list[list[float]] = []
         for text in texts:
             response = requests.post(
@@ -279,7 +329,7 @@ class GoogleProvider(BaseProvider):
                     "inline_data": {
                         "mime_type": mime_type,
                         "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    }
+                    },
                 }
             )
         response = requests.post(
@@ -296,14 +346,115 @@ class GoogleProvider(BaseProvider):
         return payload["candidates"][0]["content"]["parts"][0]["text"]
 
 
+class NvidiaNimProvider(BaseProvider):
+    """NVIDIA NIM provider with retriever-aware embedding intent."""
+
+    def _base_url(self, config: ProviderConfig) -> str:
+        return (config.base_url or "https://integrate.api.nvidia.com/v1").rstrip("/")
+
+    def _headers(self, config: ProviderConfig) -> dict[str, str]:
+        return {
+            "Authorization": f"Bearer {config.api_key}",
+            "Content-Type": "application/json",
+        }
+
+    def embed_texts(
+        self,
+        config: ProviderConfig,
+        model: str,
+        texts: list[str],
+        purpose: str = "document",
+    ) -> list[list[float]]:
+        """Generate embeddings with batching to handle large inputs and rate limits."""
+        import time
+        batch_size = 50  # NVIDIA rate limit friendly batch size
+        all_embeddings: list[list[float]] = []
+        
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            response = requests.post(
+                f"{self._base_url(config)}/embeddings",
+                headers=self._headers(config),
+                json={
+                    "model": model,
+                    "input": batch,
+                    "input_type": "query" if purpose == "query" else "passage",
+                    "encoding_format": "float",
+                },
+                timeout=120,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if "data" not in payload:
+                raise ProviderError(f"Unexpected API response: {payload}")
+            batch_embeddings = [item["embedding"] for item in payload["data"]]
+            all_embeddings.extend(batch_embeddings)
+            
+            # Rate limiting: small delay between batches
+            if i + batch_size < len(texts):
+                time.sleep(0.5)
+        
+        return all_embeddings
+
+    def chat(
+        self,
+        config: ProviderConfig,
+        model: str,
+        messages: list[dict[str, Any]],
+        temperature: float = 0.2,
+        max_tokens: int = 1200,
+    ) -> str:
+        response = requests.post(
+            f"{self._base_url(config)}/chat/completions",
+            headers=self._headers(config),
+            json={
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+            timeout=120,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload["choices"][0]["message"]["content"]
+
+    def ocr_images(
+        self,
+        config: ProviderConfig,
+        model: str,
+        images: list[tuple[str, bytes]],
+    ) -> str:
+        content: list[dict[str, Any]] = [{"type": "text", "text": "Extract all readable text from these book pages in order."}]
+        for mime_type, image_bytes in images:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{base64.b64encode(image_bytes).decode('utf-8')}",
+                    },
+                }
+            )
+        return self.chat(
+            config,
+            model,
+            [{"role": "user", "content": content}],
+            temperature=0.0,
+            max_tokens=4000,
+        )
+
+
 class ProviderRegistry:
     """Map provider types to implementations."""
 
     def __init__(self):
         self.providers = {
             "openai_compatible": OpenAICompatibleProvider(),
+            "openrouter": OpenRouterProvider(),
+            "ollama": OllamaProvider(),
             "anthropic": AnthropicProvider(),
             "google": GoogleProvider(),
+            "nvidia_nim": NvidiaNimProvider(),
         }
 
     def get(self, provider_type: str) -> BaseProvider:

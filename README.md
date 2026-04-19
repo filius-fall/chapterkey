@@ -7,7 +7,10 @@ BookRAG is a self-hosted application for uploading books, indexing them into a l
 - Upload `EPUB` and `PDF` books
 - Build local Chroma indexes per uploaded book
 - Save your own provider keys for:
+  - local Ollama
+  - hosted Ollama-compatible endpoints
   - OpenAI-compatible APIs such as OpenRouter
+  - NVIDIA embedding APIs such as `nvidia/nv-embedqa-e5-v5`
   - Anthropic
   - Google Gemini
 - Choose separate models for:
@@ -23,8 +26,10 @@ BookRAG is a self-hosted application for uploading books, indexing them into a l
 - Use the same backend from:
   - built-in web app
   - REST API
-  - `bookrag-cli`
+  - `bookrag` / `bookrag-cli`
   - `bookrag-mcp`
+- Watch an input folder and auto-ingest books into a shared output store
+- Query locally without running the API server
 
 ## Architecture
 
@@ -34,6 +39,8 @@ BookRAG is a self-hosted application for uploading books, indexing them into a l
 - `bookrag/ingestion.py`: EPUB/PDF ingestion and OCR
 - `bookrag/vector_store.py`: Chroma storage
 - `bookrag/cli.py`: command-line interface
+- `bookrag/folder_ingest.py`: input-folder scan/watch workflow
+- `bookrag/local_api.py`: direct local query helpers
 - `bookrag/mcp_bridge.py`: MCP server that proxies to the REST API
 
 ## Quick Start
@@ -57,6 +64,8 @@ Set at least:
 ```bash
 BOOKRAG_APP_SECRET=change-this-secret-before-deploying
 BOOKRAG_API_TOKEN=replace-later
+BOOKRAG_OLLAMA_EMBEDDING_MODEL=embeddinggemma
+BOOKRAG_OLLAMA_CHAT_MODEL=qwen3:latest
 ```
 
 ### 3. Start the app
@@ -67,14 +76,34 @@ python app_server.py
 
 Visit `http://127.0.0.1:8000`, create the admin account, add providers, upload books, and index them.
 
+### Local folder workflow
+
+If you prefer a file-drop pipeline, put `.epub` and `.pdf` files into `BOOKRAG_INPUT_DIR` and run:
+
+```bash
+bookrag local providers sync
+bookrag local scan
+```
+
+Or keep a watcher running:
+
+```bash
+bookrag local watch
+```
+
+Successful ingests are verified against the output Chroma store and then removed from the input folder.
+
 ## CLI
 
 ```bash
-bookrag-cli --base-url http://127.0.0.1:8000 login --username admin --password your-password
-bookrag-cli libraries list
-bookrag-cli books upload --library-id 1 --file /path/to/book.epub
-bookrag-cli books ingest --book-id 1 --embedding-provider-id 1 --embedding-model text-embedding-3-small
-bookrag-cli chat --library-id 1 --question "What happens?" --chat-provider-id 1 --chat-model google/gemini-2.5-flash-preview
+bookrag --base-url http://127.0.0.1:8000 login --username admin --password your-password
+bookrag libraries list
+bookrag books upload --library-id 1 --file /path/to/book.epub
+bookrag books ingest --book-id 1 --embedding-provider-id 1 --embedding-model text-embedding-3-small
+bookrag chat --library-id 1 --question "What happens?" --chat-provider-id 1 --chat-model google/gemini-2.5-flash-preview
+bookrag local query --question "Why did this happen?" --context-mode no_spoiler --active-book-id 1 --active-chapter-index 10
+bookrag local series create --name "Stormlight Archive"
+bookrag local series reorder --series-id 1 --book-ids 3,5,7
 ```
 
 ## MCP

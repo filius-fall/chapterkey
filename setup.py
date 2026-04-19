@@ -24,6 +24,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
+            "bookrag=bookrag.cli:main",
             "bookrag-api=bookrag.api:main",
             "bookrag-cli=bookrag.cli:main",
             "bookrag-mcp=bookrag.mcp_bridge:run",

@@ -92,6 +92,11 @@ class Database:
                     embedding_model TEXT,
                     ocr_provider_id INTEGER,
                     ocr_model TEXT,
+                    source_fingerprint TEXT,
+                    source_origin_path TEXT,
+                    managed_source_path TEXT,
+                    last_verified_at TEXT,
+                    verification_status TEXT DEFAULT 'pending',
                     metadata_json TEXT DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(library_id) REFERENCES libraries(id) ON DELETE CASCADE,
@@ -106,6 +111,10 @@ class Database:
                     status TEXT NOT NULL,
                     mode TEXT NOT NULL,
                     message TEXT,
+                    source_path TEXT,
+                    verification_status TEXT DEFAULT 'pending',
+                    verification_message TEXT,
+                    source_deleted INTEGER DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY(library_id) REFERENCES libraries(id) ON DELETE CASCADE,
@@ -157,6 +166,21 @@ class Database:
                 );
                 """
             )
+            self._ensure_column(conn, "books", "source_fingerprint", "TEXT")
+            self._ensure_column(conn, "books", "source_origin_path", "TEXT")
+            self._ensure_column(conn, "books", "managed_source_path", "TEXT")
+            self._ensure_column(conn, "books", "last_verified_at", "TEXT")
+            self._ensure_column(conn, "books", "verification_status", "TEXT DEFAULT 'pending'")
+            self._ensure_column(conn, "ingest_jobs", "source_path", "TEXT")
+            self._ensure_column(conn, "ingest_jobs", "verification_status", "TEXT DEFAULT 'pending'")
+            self._ensure_column(conn, "ingest_jobs", "verification_message", "TEXT")
+            self._ensure_column(conn, "ingest_jobs", "source_deleted", "INTEGER DEFAULT 0")
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def fetch_one(self, query: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
         """Fetch one row and return a dict."""

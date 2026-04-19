@@ -64,6 +64,7 @@ class QueryRequest(BaseModel):
     question: str
     top_k: int | None = None
     spoiler_mode: str = "full_context"
+    context_mode: str | None = None
     active_book_id: int | None = None
     active_chapter_index: int | None = None
 
@@ -348,6 +349,7 @@ def create_app(service: BookRAGService | None = None) -> FastAPI:
         chat_provider_id: Annotated[int, Form()],
         chat_model: Annotated[str, Form()],
         spoiler_mode: Annotated[str, Form()] = "full_context",
+        context_mode: Annotated[str | None, Form()] = None,
         active_book_id: Annotated[str | None, Form()] = None,
         active_chapter_index: Annotated[str | None, Form()] = None,
         user: dict[str, Any] = Depends(current_user),
@@ -358,6 +360,7 @@ def create_app(service: BookRAGService | None = None) -> FastAPI:
             chat_provider_id=chat_provider_id,
             chat_model=chat_model,
             spoiler_mode=spoiler_mode,
+            context_mode=context_mode,
             active_book_id=int(active_book_id) if active_book_id else None,
             active_chapter_index=int(active_chapter_index) if active_chapter_index else None,
         )

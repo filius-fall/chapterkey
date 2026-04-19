@@ -276,6 +276,9 @@ def render_dashboard(
           <input name="name" required>
           <label>Type</label>
           <select name="provider_type">
+            <option value="ollama">ollama</option>
+            <option value="openrouter">openrouter</option>
+            <option value="nvidia_nim">nvidia_nim</option>
             <option value="openai_compatible">openai_compatible</option>
             <option value="anthropic">anthropic</option>
             <option value="google">google</option>
@@ -314,6 +317,12 @@ def render_dashboard(
           <select name="chat_provider_id">{''.join(f"<option value='{provider['id']}'>{escape(provider['name'])}</option>" for provider in providers)}</select>
           <label>Chat model</label>
           <input name="chat_model" required>
+          <label>Context mode</label>
+          <select name="context_mode">
+            <option value="">advanced spoiler_mode below</option>
+            <option value="spoiler">spoiler</option>
+            <option value="no_spoiler">no_spoiler</option>
+          </select>
           <label>Spoiler mode</label>
           <select name="spoiler_mode">
             <option value="full_context">full_context</option>

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +36,7 @@ class BookRAGService:
         self.vector_store = VectorStore(self.settings)
         self.providers = ProviderRegistry()
         self.ingestor = DocumentIngestor()
+        self.sync_env_providers()
 
     def ensure_default_library(self) -> dict[str, Any]:
         """Create the default library if none exists."""
@@ -41,9 +45,134 @@ class BookRAGService:
             return library
         library_id = self.db.execute(
             "INSERT INTO libraries(name, description, created_at) VALUES (?, ?, ?)",
-            ("Default Library", "Default self-hosted BookRAG library", utc_now()),
+            (self.settings.default_library_name, "Default self-hosted BookRAG library", utc_now()),
         )
         return self.get_library(library_id)
+
+    @staticmethod
+    def _default_base_url(provider_type: str) -> str | None:
+        if provider_type == "ollama":
+            return "http://127.0.0.1:11434/v1"
+        if provider_type == "openrouter":
+            return "https://openrouter.ai/api/v1"
+        if provider_type == "nvidia_nim":
+            return "https://integrate.api.nvidia.com/v1"
+        return None
+
+    @staticmethod
+    def _hash_bytes(raw: bytes) -> str:
+        return hashlib.sha256(raw).hexdigest()
+
+    @staticmethod
+    def _hash_file(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _normalize_spoiler_inputs(
+        self,
+        spoiler_mode: str = "full_context",
+        context_mode: str | None = None,
+        active_book_id: int | None = None,
+        active_chapter_index: int | None = None,
+    ) -> tuple[str, int | None, int | None]:
+        if context_mode:
+            if context_mode == "spoiler":
+                spoiler_mode = "full_context"
+            elif context_mode == "no_spoiler":
+                spoiler_mode = "through_chapter"
+                if active_book_id is None or active_chapter_index is None:
+                    raise ValueError("no_spoiler mode requires active_book_id and active_chapter_index")
+            else:
+                raise ValueError("context_mode must be spoiler or no_spoiler")
+        return spoiler_mode, active_book_id, active_chapter_index
+
+    def _upsert_provider(
+        self,
+        *,
+        name: str,
+        provider_type: str,
+        api_key: str,
+        base_url: str | None = None,
+        default_embedding_model: str | None = None,
+        default_chat_model: str | None = None,
+        default_ocr_model: str | None = None,
+    ) -> dict[str, Any]:
+        provider_id = self.db.execute(
+            """
+            INSERT INTO provider_credentials(
+                name, provider_type, api_key_encrypted, base_url,
+                default_embedding_model, default_chat_model, default_ocr_model, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                provider_type = excluded.provider_type,
+                api_key_encrypted = excluded.api_key_encrypted,
+                base_url = excluded.base_url,
+                default_embedding_model = excluded.default_embedding_model,
+                default_chat_model = excluded.default_chat_model,
+                default_ocr_model = excluded.default_ocr_model
+            """,
+            (
+                name,
+                provider_type,
+                encrypt_secret(api_key, self.settings.app_secret),
+                base_url or self._default_base_url(provider_type),
+                default_embedding_model,
+                default_chat_model,
+                default_ocr_model,
+                utc_now(),
+            ),
+        )
+        row = self.db.fetch_one("SELECT id FROM provider_credentials WHERE name = ?", (name,))
+        if not row:
+            raise ValueError("Provider could not be created")
+        return self.public_provider(int(row["id"]))
+
+    def sync_env_providers(self) -> None:
+        """Seed provider configs from environment variables for local workflows."""
+        provider_specs = [
+            {
+                "name": os.getenv("BOOKRAG_OLLAMA_PROVIDER_NAME", "Ollama Local"),
+                "provider_type": "ollama",
+                "api_key": os.getenv("BOOKRAG_OLLAMA_API_KEY", "ollama"),
+                "base_url": os.getenv("BOOKRAG_OLLAMA_BASE_URL", self._default_base_url("ollama")),
+                "default_embedding_model": os.getenv("BOOKRAG_OLLAMA_EMBEDDING_MODEL"),
+                "default_chat_model": os.getenv("BOOKRAG_OLLAMA_CHAT_MODEL"),
+                "default_ocr_model": os.getenv("BOOKRAG_OLLAMA_OCR_MODEL"),
+            },
+            {
+                "name": os.getenv("BOOKRAG_OLLAMA_CLOUD_PROVIDER_NAME", "Ollama Cloud"),
+                "provider_type": "openai_compatible",
+                "api_key": os.getenv("BOOKRAG_OLLAMA_CLOUD_API_KEY", ""),
+                "base_url": os.getenv("BOOKRAG_OLLAMA_CLOUD_BASE_URL"),
+                "default_embedding_model": os.getenv("BOOKRAG_OLLAMA_CLOUD_EMBEDDING_MODEL"),
+                "default_chat_model": os.getenv("BOOKRAG_OLLAMA_CLOUD_CHAT_MODEL"),
+                "default_ocr_model": os.getenv("BOOKRAG_OLLAMA_CLOUD_OCR_MODEL"),
+            },
+            {
+                "name": os.getenv("BOOKRAG_OPENROUTER_PROVIDER_NAME", "OpenRouter"),
+                "provider_type": "openrouter",
+                "api_key": os.getenv("BOOKRAG_OPENROUTER_API_KEY", ""),
+                "base_url": os.getenv("BOOKRAG_OPENROUTER_BASE_URL", self._default_base_url("openrouter")),
+                "default_embedding_model": os.getenv("BOOKRAG_OPENROUTER_EMBEDDING_MODEL"),
+                "default_chat_model": os.getenv("BOOKRAG_OPENROUTER_CHAT_MODEL"),
+                "default_ocr_model": os.getenv("BOOKRAG_OPENROUTER_OCR_MODEL"),
+            },
+            {
+                "name": os.getenv("BOOKRAG_NVIDIA_PROVIDER_NAME", "NVIDIA"),
+                "provider_type": "nvidia_nim",
+                "api_key": os.getenv("BOOKRAG_NVIDIA_API_KEY", ""),
+                "base_url": os.getenv("BOOKRAG_NVIDIA_BASE_URL", self._default_base_url("nvidia_nim")),
+                "default_embedding_model": os.getenv("BOOKRAG_NVIDIA_EMBEDDING_MODEL", "nvidia/nv-embedqa-e5-v5"),
+                "default_chat_model": os.getenv("BOOKRAG_NVIDIA_CHAT_MODEL"),
+                "default_ocr_model": os.getenv("BOOKRAG_NVIDIA_OCR_MODEL"),
+            },
+        ]
+        for spec in provider_specs:
+            if spec["api_key"] or spec["provider_type"] == "ollama":
+                self._upsert_provider(**spec)
 
     def admin_exists(self) -> bool:
         """Return whether an admin user is configured."""
@@ -112,25 +241,17 @@ class BookRAGService:
         default_ocr_model: str | None = None,
     ) -> dict[str, Any]:
         """Create a provider credential."""
-        provider_id = self.db.execute(
-            """
-            INSERT INTO provider_credentials(
-                name, provider_type, api_key_encrypted, base_url,
-                default_embedding_model, default_chat_model, default_ocr_model, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                name,
-                provider_type,
-                encrypt_secret(api_key, self.settings.app_secret),
-                base_url,
-                default_embedding_model,
-                default_chat_model,
-                default_ocr_model,
-                utc_now(),
-            ),
+        if provider_type not in self.providers.providers:
+            raise ValueError(f"Unsupported provider type: {provider_type}")
+        return self._upsert_provider(
+            name=name,
+            provider_type=provider_type,
+            api_key=api_key,
+            base_url=base_url,
+            default_embedding_model=default_embedding_model,
+            default_chat_model=default_chat_model,
+            default_ocr_model=default_ocr_model,
         )
-        return self.public_provider(provider_id)
 
     def _get_provider_row(self, provider_id: int) -> dict[str, Any]:
         """Fetch one provider without the decrypted key."""
@@ -219,12 +340,146 @@ class BookRAGService:
         book_id = self.db.execute(
             """
             INSERT INTO books(
-                library_id, title, author, file_name, source_path, source_type, ingest_status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                library_id, title, author, file_name, source_path, source_type, ingest_status,
+                source_fingerprint, managed_source_path, verification_status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (library_id, source_path.stem, None, safe_name, str(source_path), source_type, "uploaded", utc_now()),
+            (
+                library_id,
+                source_path.stem,
+                None,
+                safe_name,
+                str(source_path),
+                source_type,
+                "uploaded",
+                self._hash_bytes(source_bytes),
+                str(source_path),
+                "pending",
+                utc_now(),
+            ),
         )
         return self.get_book(book_id)
+
+    def verify_book_vectors(self, library_id: int, book_id: int, expected_chunk_count: int) -> dict[str, Any]:
+        """Verify that a book collection was written and is readable."""
+        if not self.vector_store.collection_exists(library_id, book_id):
+            raise ValueError("Book collection was not created")
+        actual_count = self.vector_store.count_book_chunks(library_id, book_id)
+        if actual_count != expected_chunk_count:
+            raise ValueError(f"Expected {expected_chunk_count} chunks, found {actual_count}")
+        sample = self.vector_store.sample_book_chunk(library_id, book_id)
+        if not sample or not sample.get("document"):
+            raise ValueError("No readable chunk found in vector store")
+        metadata = sample.get("metadata") or {}
+        for key in ("library_id", "book_id", "chunk_index"):
+            if key not in metadata:
+                raise ValueError(f"Missing required metadata field: {key}")
+        return {"chunk_count": actual_count, "sample_metadata": metadata}
+
+    def find_provider_by_name(self, name: str) -> dict[str, Any] | None:
+        """Find a provider by its configured name."""
+        provider = self.db.fetch_one("SELECT * FROM provider_credentials WHERE name = ?", (name,))
+        return self._sanitize_provider(provider) if provider else None
+
+    def default_provider_ids(self) -> dict[str, int | None]:
+        """Resolve default provider ids from environment-backed provider names."""
+        lookup = {
+            "embedding_provider": os.getenv("BOOKRAG_DEFAULT_EMBEDDING_PROVIDER_NAME"),
+            "chat_provider": os.getenv("BOOKRAG_DEFAULT_CHAT_PROVIDER_NAME"),
+            "ocr_provider": os.getenv("BOOKRAG_DEFAULT_OCR_PROVIDER_NAME"),
+        }
+        resolved: dict[str, int | None] = {}
+        for key, name in lookup.items():
+            if not name:
+                resolved[key] = None
+                continue
+            provider = self.find_provider_by_name(name)
+            resolved[key] = int(provider["id"]) if provider else None
+        return resolved
+
+    def ingest_file_from_path(
+        self,
+        source_path: Path,
+        *,
+        library_id: int | None = None,
+        embedding_provider_id: int,
+        embedding_model: str,
+        chunk_size: int | None = None,
+        chunk_overlap: int | None = None,
+        ocr_provider_id: int | None = None,
+        ocr_model: str | None = None,
+        ocr_mode: str = "disabled",
+        confirm_ocr_cost: bool = False,
+        delete_source: bool | None = None,
+    ) -> dict[str, Any]:
+        """Register and ingest a book from a filesystem path."""
+        path = Path(source_path)
+        if not path.exists():
+            raise ValueError(f"File not found: {path}")
+        source_type = path.suffix.lower().lstrip(".")
+        if source_type not in {"epub", "pdf"}:
+            raise ValueError("Only EPUB and PDF uploads are supported")
+
+        library = self.get_library(library_id) if library_id else self.ensure_default_library()
+        fingerprint = self._hash_file(path)
+        existing = self.db.fetch_one(
+            "SELECT * FROM books WHERE source_fingerprint = ? AND library_id = ? AND ingest_status = ?",
+            (fingerprint, library["id"], "ready"),
+        )
+        if existing:
+            if delete_source if delete_source is not None else self.settings.auto_delete_source:
+                if path.resolve().parent == self.settings.input_dir.resolve():
+                    path.unlink(missing_ok=True)
+            return {"duplicate": True, "book": self.get_book(int(existing["id"]))}
+
+        library_dir = self.settings.managed_books_dir / f"library_{library['id']}"
+        library_dir.mkdir(parents=True, exist_ok=True)
+        managed_path = library_dir / path.name
+        if managed_path.exists():
+            managed_path = library_dir / f"{path.stem}_{fingerprint[:8]}{path.suffix}"
+        shutil.copy2(path, managed_path)
+        book_id = self.db.execute(
+            """
+            INSERT INTO books(
+                library_id, title, author, file_name, source_path, source_type, ingest_status,
+                source_fingerprint, source_origin_path, managed_source_path, verification_status, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                library["id"],
+                path.stem,
+                None,
+                managed_path.name,
+                str(managed_path),
+                source_type,
+                "uploaded",
+                fingerprint,
+                str(path),
+                str(managed_path),
+                "pending",
+                utc_now(),
+            ),
+        )
+        result = self.ingest_book(
+            book_id=book_id,
+            embedding_provider_id=embedding_provider_id,
+            embedding_model=embedding_model,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            ocr_provider_id=ocr_provider_id,
+            ocr_model=ocr_model,
+            ocr_mode=ocr_mode,
+            confirm_ocr_cost=confirm_ocr_cost,
+            source_path=str(path),
+        )
+        should_delete = delete_source if delete_source is not None else self.settings.auto_delete_source
+        if should_delete and path.resolve().parent == self.settings.input_dir.resolve():
+            path.unlink(missing_ok=True)
+            self.db.execute(
+                "UPDATE ingest_jobs SET source_deleted = ?, updated_at = ? WHERE id = ?",
+                (1, utc_now(), result["job_id"]),
+            )
+        return result
 
     def create_series(self, library_id: int, name: str) -> dict[str, Any]:
         """Create a series in a library."""
@@ -314,6 +569,7 @@ class BookRAGService:
         ocr_model: str | None = None,
         ocr_mode: str = "disabled",
         confirm_ocr_cost: bool = False,
+        source_path: str | None = None,
     ) -> dict[str, Any]:
         """Ingest a book synchronously and store its vectors."""
         book = self.get_book(book_id)
@@ -321,12 +577,26 @@ class BookRAGService:
         chunk_overlap = chunk_overlap or self.settings.default_chunk_overlap
         job_id = self.db.execute(
             """
-            INSERT INTO ingest_jobs(library_id, book_id, status, mode, message, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO ingest_jobs(
+                library_id, book_id, status, mode, message, source_path, verification_status, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (book["library_id"], book_id, "running", ocr_mode, "Ingest started", utc_now(), utc_now()),
+            (
+                book["library_id"],
+                book_id,
+                "running",
+                ocr_mode,
+                "Ingest started",
+                source_path,
+                "pending",
+                utc_now(),
+                utc_now(),
+            ),
         )
-        self.db.execute("UPDATE books SET ingest_status = ? WHERE id = ?", ("processing", book_id))
+        self.db.execute(
+            "UPDATE books SET ingest_status = ?, verification_status = ? WHERE id = ?",
+            ("processing", "pending", book_id),
+        )
 
         try:
             embed_config = self._provider_config(embedding_provider_id)
@@ -357,7 +627,7 @@ class BookRAGService:
             else:
                 raise ValueError(f"Unsupported source type: {book['source_type']}")
 
-            embeddings = embed_adapter.embed_texts(embed_config, embedding_model, document.chunks)
+            embeddings = embed_adapter.embed_texts(embed_config, embedding_model, document.chunks, purpose="document")
             enriched_metadata: list[dict[str, Any]] = []
             for index, metadata in enumerate(document.metadata):
                 page_num = metadata.get("page_number")
@@ -383,11 +653,13 @@ class BookRAGService:
                 
                 enriched_metadata.append(meta)
             self.vector_store.upsert_book_chunks(book["library_id"], book_id, embeddings, document.chunks, enriched_metadata)
+            verification = self.verify_book_vectors(book["library_id"], book_id, len(document.chunks))
             self.db.execute(
                 """
                 UPDATE books
                 SET title = ?, author = ?, ingest_status = ?, chapter_count = ?, chunk_count = ?, total_tokens = ?,
-                    embedding_provider_id = ?, embedding_model = ?, ocr_provider_id = ?, ocr_model = ?, metadata_json = ?
+                    embedding_provider_id = ?, embedding_model = ?, ocr_provider_id = ?, ocr_model = ?,
+                    metadata_json = ?, verification_status = ?, last_verified_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -407,21 +679,42 @@ class BookRAGService:
                             "stats": document.stats,
                             "chunk_size": chunk_size,
                             "chunk_overlap": chunk_overlap,
+                            "verification": verification,
                         }
                     ),
+                    "verified",
+                    utc_now(),
                     book_id,
                 ),
             )
             self.db.execute(
-                "UPDATE ingest_jobs SET status = ?, message = ?, updated_at = ? WHERE id = ?",
-                ("completed", f"Indexed {document.stats.get('chunk_count', 0)} chunks", utc_now(), job_id),
+                """
+                UPDATE ingest_jobs
+                SET status = ?, message = ?, verification_status = ?, verification_message = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    "completed",
+                    f"Indexed {document.stats.get('chunk_count', 0)} chunks",
+                    "verified",
+                    f"Verified {verification['chunk_count']} chunks",
+                    utc_now(),
+                    job_id,
+                ),
             )
             return {"job_id": job_id, "book": self.get_book(book_id)}
         except Exception as exc:
-            self.db.execute("UPDATE books SET ingest_status = ? WHERE id = ?", ("failed", book_id))
             self.db.execute(
-                "UPDATE ingest_jobs SET status = ?, message = ?, updated_at = ? WHERE id = ?",
-                ("failed", str(exc), utc_now(), job_id),
+                "UPDATE books SET ingest_status = ?, verification_status = ? WHERE id = ?",
+                ("failed", "failed", book_id),
+            )
+            self.db.execute(
+                """
+                UPDATE ingest_jobs
+                SET status = ?, message = ?, verification_status = ?, verification_message = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                ("failed", str(exc), "failed", str(exc), utc_now(), job_id),
             )
             raise
 
@@ -481,10 +774,17 @@ class BookRAGService:
         question: str,
         top_k: int | None = None,
         spoiler_mode: str = "full_context",
+        context_mode: str | None = None,
         active_book_id: int | None = None,
         active_chapter_index: int | None = None,
     ) -> dict[str, Any]:
         """Retrieve context passages for a question."""
+        spoiler_mode, active_book_id, active_chapter_index = self._normalize_spoiler_inputs(
+            spoiler_mode=spoiler_mode,
+            context_mode=context_mode,
+            active_book_id=active_book_id,
+            active_chapter_index=active_chapter_index,
+        )
         library = self.get_library(library_id)
         books = [book for book in self.list_books(library_id) if book["ingest_status"] == "ready"]
         if not books:
@@ -501,7 +801,7 @@ class BookRAGService:
         for (provider_id, embedding_model), group_books in grouped_books.items():
             provider_config = self._provider_config(int(provider_id))
             provider = self.providers.get(provider_config.provider_type)
-            query_embedding = provider.embed_texts(provider_config, embedding_model, [question])[0]
+            query_embedding = provider.embed_texts(provider_config, embedding_model, [question], purpose="query")[0]
             for book in group_books:
                 merged_results.extend(
                     self.vector_store.query_book(library_id, book["id"], query_embedding, max(top_k * 3, 10))
@@ -526,6 +826,7 @@ class BookRAGService:
             "library": library,
             "question": question,
             "spoiler_mode": spoiler_mode,
+            "context_mode": context_mode,
             "active_book_id": active_book_id,
             "active_chapter_index": active_chapter_index,
             "results": filtered,
@@ -540,6 +841,7 @@ class BookRAGService:
         chat_model: str,
         top_k: int | None = None,
         spoiler_mode: str = "full_context",
+        context_mode: str | None = None,
         active_book_id: int | None = None,
         active_chapter_index: int | None = None,
         temperature: float = 0.2,
@@ -551,6 +853,7 @@ class BookRAGService:
             question=question,
             top_k=top_k,
             spoiler_mode=spoiler_mode,
+            context_mode=context_mode,
             active_book_id=active_book_id,
             active_chapter_index=active_chapter_index,
         )

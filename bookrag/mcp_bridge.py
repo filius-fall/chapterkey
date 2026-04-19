@@ -64,6 +64,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "library_id": {"type": "integer"},
                     "question": {"type": "string"},
+                    "context_mode": {"type": "string"},
                     "spoiler_mode": {"type": "string"},
                     "active_book_id": {"type": "integer"},
                     "active_chapter_index": {"type": "integer"},
@@ -82,6 +83,7 @@ async def list_tools() -> list[Tool]:
                     "question": {"type": "string"},
                     "chat_provider_id": {"type": "integer"},
                     "chat_model": {"type": "string"},
+                    "context_mode": {"type": "string"},
                     "spoiler_mode": {"type": "string"},
                     "active_book_id": {"type": "integer"},
                     "active_chapter_index": {"type": "integer"},

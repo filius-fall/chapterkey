@@ -32,6 +32,11 @@ class VectorStore:
     def _collection(self, library_id: int, book_id: int):
         return self.client.get_or_create_collection(name=self.collection_name(library_id, book_id))
 
+    def collection_exists(self, library_id: int, book_id: int) -> bool:
+        """Return whether a collection already exists for the book."""
+        target = self.collection_name(library_id, book_id)
+        return any(collection.name == target for collection in self.client.list_collections())
+
     def upsert_book_chunks(
         self,
         library_id: int,
@@ -50,6 +55,26 @@ class VectorStore:
         ids = [f"{library_id}_{book_id}_{index}" for index in range(len(chunks))]
         collection.add(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
         logger.info("Indexed %s chunks for library=%s book=%s", len(chunks), library_id, book_id)
+
+    def count_book_chunks(self, library_id: int, book_id: int) -> int:
+        """Count the stored chunks for a book."""
+        collection = self._collection(library_id, book_id)
+        return len(collection.get().get("ids", []))
+
+    def sample_book_chunk(self, library_id: int, book_id: int) -> dict[str, Any] | None:
+        """Fetch one stored chunk for verification."""
+        collection = self._collection(library_id, book_id)
+        sample = collection.get(limit=1)
+        ids = sample.get("ids", [])
+        if not ids:
+            return None
+        documents = sample.get("documents", [])
+        metadatas = sample.get("metadatas", [])
+        return {
+            "id": ids[0],
+            "document": documents[0] if documents else None,
+            "metadata": metadatas[0] if metadatas else None,
+        }
 
     def query_book(
         self,
