@@ -73,21 +73,24 @@ class FolderIngestor:
         for index, path in enumerate(self.stable_files(input_dir=input_dir), start=1):
             if limit is not None and index > limit:
                 break
-            results.append(
-                self.service.ingest_file_from_path(
-                    path,
-                    library_id=config.library_id,
-                    embedding_provider_id=config.embedding_provider_id,
-                    embedding_model=config.embedding_model,
-                    chunk_size=config.chunk_size,
-                    chunk_overlap=config.chunk_overlap,
-                    ocr_provider_id=config.ocr_provider_id,
-                    ocr_model=config.ocr_model,
-                    ocr_mode=config.ocr_mode,
-                    confirm_ocr_cost=config.confirm_ocr_cost,
-                    delete_source=config.delete_source,
+            try:
+                results.append(
+                    self.service.ingest_file_from_path(
+                        path,
+                        library_id=config.library_id,
+                        embedding_provider_id=config.embedding_provider_id,
+                        embedding_model=config.embedding_model,
+                        chunk_size=config.chunk_size,
+                        chunk_overlap=config.chunk_overlap,
+                        ocr_provider_id=config.ocr_provider_id,
+                        ocr_model=config.ocr_model,
+                        ocr_mode=config.ocr_mode,
+                        confirm_ocr_cost=config.confirm_ocr_cost,
+                        delete_source=config.delete_source,
+                    )
                 )
-            )
+            except Exception as exc:
+                results.append({"error": str(exc), "file": str(path)})
         return results
 
     def watch_forever(

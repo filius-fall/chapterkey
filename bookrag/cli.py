@@ -1210,6 +1210,7 @@ def main() -> None:
         ingest_cmd.add_argument("--chunk-overlap", type=int)
     local_scan.add_argument("--limit", type=int)
     local_scan.add_argument("--input-dir", help="Override input directory for this scan (e.g. . for current dir)")
+    local_scan.add_argument("--json", action="store_true", help="Output raw JSON instead of formatted summary")
     local_watch.add_argument("--interval-sec", type=int)
     local_watch.add_argument("--limit-per-scan", type=int)
     local_watch.add_argument("--input-dir", help="Override input directory for this watch (e.g. . for current dir)")
@@ -1387,10 +1388,10 @@ def main() -> None:
         input_dir = Path(args.input_dir).resolve() if getattr(args, "input_dir", None) else service.settings.input_dir
         ingestor = FolderIngestor(service)
         files = ingestor.stable_files(input_dir=input_dir, min_file_age_sec=0)
-        indexed_paths = {b.get("file_path", b.get("original_filename", "")) for b in service.list_books(library_id)}
+        indexed_names = {b.get("file_name", "") for b in service.list_books(library_id)}
         pending = []
         for f in files:
-            if str(f) not in indexed_paths and f.name not in indexed_paths:
+            if f.name not in indexed_names:
                 pending.append({"name": f.name, "size_mb": round(f.stat().st_size / 1024 / 1024, 1), "path": str(f)})
         if not pending:
             print("No pending books found.")
@@ -1422,7 +1423,39 @@ def main() -> None:
         config_obj = _local_ingest_config(service, args)
         input_dir = Path(args.input_dir).resolve() if getattr(args, "input_dir", None) else None
         if args.local_action == "scan":
-            print_json(ingestor.scan_once(config=config_obj, input_dir=input_dir, limit=args.limit))
+            results = ingestor.scan_once(config=config_obj, input_dir=input_dir, limit=args.limit)
+            if getattr(args, "json", False):
+                print_json(results)
+                return
+            indexed = 0
+            errors = 0
+            for r in results:
+                if r.get("error"):
+                    fname = Path(r.get("file", "unknown")).name
+                    print(f"  \u2717 {fname} — {r['error']}")
+                    errors += 1
+                    continue
+                if r.get("duplicate"):
+                    title = r.get("book", {}).get("title", "unknown")
+                    print(f"  = {title} — already indexed, skipped")
+                    continue
+                book = r.get("book", {})
+                title = book.get("title", "unknown")
+                chunks = book.get("chunk_count", 0)
+                tokens = book.get("total_tokens", 0)
+                tok_str = f"{tokens // 1000}K" if tokens >= 1000 else str(tokens)
+                print(f"  \u2713 {title} — {chunks} chunks, {tok_str} tokens")
+                indexed += 1
+            if not results:
+                print("No files found to index.")
+            else:
+                db_path = service.settings.output_dir
+                parts = []
+                if indexed:
+                    parts.append(f"{indexed} book{'s' if indexed != 1 else ''} indexed")
+                if errors:
+                    parts.append(f"{errors} failed")
+                print(f"\n{', '.join(parts)} \u2192 {db_path}")
             return
         ingestor.watch_forever(config=config_obj, input_dir=input_dir, interval_sec=args.interval_sec, limit_per_scan=args.limit_per_scan)
         return

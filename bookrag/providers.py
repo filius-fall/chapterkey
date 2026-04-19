@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import requests
+from tqdm import tqdm
 
 
 @dataclass
@@ -84,8 +85,9 @@ class OpenAICompatibleProvider(BaseProvider):
         del purpose
         batch_size = 50
         all_embeddings: list[list[float]] = []
+        num_batches = (len(texts) + batch_size - 1) // batch_size
         
-        for i in range(0, len(texts), batch_size):
+        for i in tqdm(range(0, len(texts), batch_size), total=num_batches, desc="Embedding", unit="batch"):
             batch = texts[i:i + batch_size]
             response = requests.post(
                 f"{self._base_url(config)}/embeddings",
@@ -367,10 +369,11 @@ class NvidiaNimProvider(BaseProvider):
     ) -> list[list[float]]:
         """Generate embeddings with batching to handle large inputs and rate limits."""
         import time
-        batch_size = 50  # NVIDIA rate limit friendly batch size
+        batch_size = 50
         all_embeddings: list[list[float]] = []
+        num_batches = (len(texts) + batch_size - 1) // batch_size
         
-        for i in range(0, len(texts), batch_size):
+        for i in tqdm(range(0, len(texts), batch_size), total=num_batches, desc="Embedding", unit="batch"):
             batch = texts[i:i + batch_size]
             response = requests.post(
                 f"{self._base_url(config)}/embeddings",
@@ -390,7 +393,6 @@ class NvidiaNimProvider(BaseProvider):
             batch_embeddings = [item["embedding"] for item in payload["data"]]
             all_embeddings.extend(batch_embeddings)
             
-            # Rate limiting: small delay between batches
             if i + batch_size < len(texts):
                 time.sleep(0.5)
         

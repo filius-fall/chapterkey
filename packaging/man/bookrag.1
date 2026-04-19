@@ -92,6 +92,10 @@ Chunk overlap in tokens (default: 100).
 Delete original files after successful indexing.
 .IP "\fB\-\-limit\fR \fIN\fR" 4
 Only process the first N files.
+.IP "\fB\-\-input-dir\fR \fIDIR\fR" 4
+Override input directory for this scan.
+.IP "\fB\-\-json\fR" 4
+Output raw JSON instead of formatted summary.
 .RE
 .TP
 .B local watch [\fIOPTIONS\fR]
@@ -159,11 +163,14 @@ Custom endpoints can also be configured manually.
 .I /etc/bookrag/bookrag.env
 Default environment file for deb installs.
 .TP
+.I ~/BookRAG_files/db/
+Data directory (SQLite + ChromaDB).
+.TP
+.I ~/BookRAG_files/input/
+Default input directory for books to index.
+.TP
 .I ~/Documents/BookRAG/
 Default workspace root.
-.TP
-.I ~/.local/share/bookrag/
-Default data directory (SQLite + ChromaDB).
 .TP
 .I /opt/bookrag/
 Installed source and venv (deb installs).

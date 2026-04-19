@@ -771,6 +771,7 @@ class BookRAGService:
             else:
                 raise ValueError(f"Unsupported source type: {book['source_type']}")
 
+            print(f"Generating embeddings ({len(document.chunks)} chunks, {embedding_model})...")
             embeddings = embed_adapter.embed_texts(embed_config, embedding_model, document.chunks, purpose="document")
             enriched_metadata: list[dict[str, Any]] = []
             for index, metadata in enumerate(document.metadata):
