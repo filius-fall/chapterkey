@@ -1188,6 +1188,9 @@ def main() -> None:
     local_query = local_sub.add_parser("query")
     local_answer = local_sub.add_parser("answer")
     local_books = local_sub.add_parser("books")
+    local_pending = local_sub.add_parser("pending")
+    local_pending.add_argument("--library-id", type=int)
+    local_pending.add_argument("--input-dir", help="Override input directory (e.g. . for current dir)")
     local_jobs = local_sub.add_parser("jobs")
     local_providers = local_sub.add_parser("providers")
     local_series = local_sub.add_parser("series")
@@ -1378,6 +1381,23 @@ def main() -> None:
     if args.local_action == "books":
         library_id = args.library_id or service.ensure_default_library()["id"]
         print_json(service.list_books(library_id))
+        return
+    if args.local_action == "pending":
+        library_id = args.library_id or service.ensure_default_library()["id"]
+        input_dir = Path(args.input_dir).resolve() if getattr(args, "input_dir", None) else service.settings.input_dir
+        ingestor = FolderIngestor(service)
+        files = ingestor.stable_files(input_dir=input_dir, min_file_age_sec=0)
+        indexed_paths = {b.get("file_path", b.get("original_filename", "")) for b in service.list_books(library_id)}
+        pending = []
+        for f in files:
+            if str(f) not in indexed_paths and f.name not in indexed_paths:
+                pending.append({"name": f.name, "size_mb": round(f.stat().st_size / 1024 / 1024, 1), "path": str(f)})
+        if not pending:
+            print("No pending books found.")
+            return
+        print(f"Pending books in {input_dir}:")
+        for i, f in enumerate(pending, 1):
+            print(f"  {i}) {f['name']} ({f['size_mb']} MB)")
         return
     if args.local_action == "jobs":
         print_json(service.list_jobs())
