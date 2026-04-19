@@ -60,6 +60,11 @@ EOF
 cat > "${STAGE_DIR}/usr/bin/bookrag" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ -f /etc/bookrag/bookrag.env ]]; then
+  set -a
+  source /etc/bookrag/bookrag.env
+  set +a
+fi
 if [[ ! -x /opt/bookrag/venv/bin/bookrag ]]; then
   echo "ChapterKey is not bootstrapped yet. Re-run: sudo dpkg --configure bookrag" >&2
   echo "Bootstrap log: /var/log/bookrag-bootstrap.log" >&2

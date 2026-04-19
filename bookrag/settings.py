@@ -46,7 +46,7 @@ class AppSettings:
     @classmethod
     def load(cls) -> "AppSettings":
         """Load settings from environment variables."""
-        base_dir = Path(__file__).resolve().parent.parent
+        base_dir = Path(os.getenv("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))) / "bookrag"
         output_dir_raw = os.getenv("BOOKRAG_OUTPUT_DIR", str(base_dir / "data" / "bookrag_output"))
         input_dir_raw = os.getenv("BOOKRAG_INPUT_DIR", str(base_dir / "data" / "input_books"))
         data_dir_default = Path(output_dir_raw).expanduser()
