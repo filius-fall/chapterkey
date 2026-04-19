@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import getpass
 import json
@@ -960,6 +961,65 @@ def _upsert_provider_safe(
             raise
 
 
+def _run_config(argv: list[str]) -> None:
+    """Show or update ChapterKey configuration."""
+    parser = argparse.ArgumentParser(prog="bookrag config", description="Show or update ChapterKey configuration")
+    parser.add_argument("--input-dir", help="Set default input directory")
+    parser.add_argument("--output-dir", help="Set default output/data directory")
+    args = parser.parse_args(argv)
+
+    env_file = Path("/etc/bookrag/bookrag.env") if Path("/etc/bookrag/bookrag.env").exists() else None
+    user_env = Path.home() / ".config" / "bookrag.env"
+
+    if args.input_dir or args.output_dir:
+        target = env_file if env_file and os.access(str(env_file), os.W_OK) else user_env
+        target.parent.mkdir(parents=True, exist_ok=True)
+        lines: list[str] = []
+        if target.exists():
+            lines = target.read_text().strip().splitlines()
+        if env_file and env_file != target and env_file.exists():
+            for line in env_file.read_text().strip().splitlines():
+                if "=" in line and not any(l.startswith(line.split("=", 1)[0] + "=") for l in lines):
+                    lines.append(line)
+        updates = {}
+        if args.input_dir:
+            resolved = Path(args.input_dir).resolve()
+            resolved.mkdir(parents=True, exist_ok=True)
+            updates["BOOKRAG_INPUT_DIR"] = str(resolved)
+        if args.output_dir:
+            resolved = Path(args.output_dir).resolve()
+            resolved.mkdir(parents=True, exist_ok=True)
+            updates["BOOKRAG_OUTPUT_DIR"] = str(resolved)
+        for key, value in updates.items():
+            found = False
+            for i, line in enumerate(lines):
+                if line.startswith(f"{key}="):
+                    lines[i] = f"{key}={value}"
+                    found = True
+                    break
+            if not found:
+                lines.append(f"{key}={value}")
+        target.write_text("\n".join(lines) + "\n")
+        for key, value in updates.items():
+            print(f"Set {key}={value}")
+        print(f"Written to {target}")
+        if target != env_file and env_file:
+            print(f"Note: System config ({env_file}) is not writable. Using user config instead.")
+            print(f"  The wrapper script at /usr/bin/bookrag loads {env_file} first.")
+            print(f"  To update the system file: sudo bookrag config --input-dir ...")
+        return
+
+    settings = AppSettings.load()
+    print(f"Input directory:  {settings.input_dir}")
+    print(f"Output directory:  {settings.data_dir}")
+    print(f"Vector DB:         {settings.vector_db_dir}")
+    print(f"SQLite:            {settings.sqlite_path}")
+    if env_file:
+        print(f"Config file:       {env_file}")
+    elif user_env.exists():
+        print(f"Config file:       {user_env}")
+
+
 def _run_simple_cli(argv: list[str]) -> bool:
     if not argv:
         return False
@@ -981,6 +1041,9 @@ def _run_simple_cli(argv: list[str]) -> bool:
         return True
     if command == "update":
         _run_update(argv[1:])
+        return True
+    if command == "config":
+        _run_config(argv[1:])
         return True
     if command == "series":
         return _run_series(argv[1:])
@@ -1143,8 +1206,10 @@ def main() -> None:
         ingest_cmd.add_argument("--chunk-size", type=int)
         ingest_cmd.add_argument("--chunk-overlap", type=int)
     local_scan.add_argument("--limit", type=int)
+    local_scan.add_argument("--input-dir", help="Override input directory for this scan (e.g. . for current dir)")
     local_watch.add_argument("--interval-sec", type=int)
     local_watch.add_argument("--limit-per-scan", type=int)
+    local_watch.add_argument("--input-dir", help="Override input directory for this watch (e.g. . for current dir)")
 
     for query_cmd in (local_query, local_answer):
         query_cmd.add_argument("--library-id", type=int)
@@ -1335,10 +1400,11 @@ def main() -> None:
     if args.local_action in {"scan", "watch"}:
         ingestor = FolderIngestor(service)
         config_obj = _local_ingest_config(service, args)
+        input_dir = Path(args.input_dir).resolve() if getattr(args, "input_dir", None) else None
         if args.local_action == "scan":
-            print_json(ingestor.scan_once(config=config_obj, limit=args.limit))
+            print_json(ingestor.scan_once(config=config_obj, input_dir=input_dir, limit=args.limit))
             return
-        ingestor.watch_forever(config=config_obj, interval_sec=args.interval_sec, limit_per_scan=args.limit_per_scan)
+        ingestor.watch_forever(config=config_obj, input_dir=input_dir, interval_sec=args.interval_sec, limit_per_scan=args.limit_per_scan)
         return
     if args.local_action == "query":
         library_id = args.library_id or service.ensure_default_library()["id"]

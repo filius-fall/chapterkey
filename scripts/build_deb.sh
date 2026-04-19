@@ -66,6 +66,11 @@ if [[ -f /etc/bookrag/bookrag.env ]]; then
   source /etc/bookrag/bookrag.env
   set +a
 fi
+if [[ -f "$HOME/.config/bookrag.env" ]]; then
+  set -a
+  source "$HOME/.config/bookrag.env"
+  set +a
+fi
 if [[ ! -x /opt/bookrag/venv/bin/bookrag ]]; then
   echo "ChapterKey is not bootstrapped yet. Re-run: sudo dpkg --configure bookrag" >&2
   echo "Bootstrap log: /var/log/bookrag-bootstrap.log" >&2
@@ -82,6 +87,11 @@ if [[ -f /etc/bookrag/bookrag.env ]]; then
   source /etc/bookrag/bookrag.env
   set +a
 fi
+if [[ -f "$HOME/.config/bookrag.env" ]]; then
+  set -a
+  source "$HOME/.config/bookrag.env"
+  set +a
+fi
 if [[ ! -x /opt/bookrag/venv/bin/bookrag-api ]]; then
   echo "ChapterKey is not bootstrapped yet. Re-run: sudo dpkg --configure bookrag" >&2
   echo "Bootstrap log: /var/log/bookrag-bootstrap.log" >&2
@@ -96,6 +106,11 @@ set -euo pipefail
 if [[ -f /etc/bookrag/bookrag.env ]]; then
   set -a
   source /etc/bookrag/bookrag.env
+  set +a
+fi
+if [[ -f "$HOME/.config/bookrag.env" ]]; then
+  set -a
+  source "$HOME/.config/bookrag.env"
   set +a
 fi
 if [[ ! -x /opt/bookrag/venv/bin/bookrag-mcp ]]; then
