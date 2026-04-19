@@ -25,6 +25,7 @@ mkdir -p \
   "${STAGE_DIR}${APP_ROOT}" \
   "${STAGE_DIR}${SRC_DIR}" \
   "${STAGE_DIR}/usr/bin" \
+  "${STAGE_DIR}/usr/share/man/man1" \
   "${STAGE_DIR}/etc/bookrag" \
   "${STAGE_DIR}/var/log"
 
@@ -152,6 +153,11 @@ EOF
 chmod 0755 "${STAGE_DIR}/usr/bin/bookrag" "${STAGE_DIR}/usr/bin/bookrag-api" "${STAGE_DIR}/usr/bin/bookrag-mcp"
 chmod 0755 "${STAGE_DIR}/DEBIAN/postinst" "${STAGE_DIR}/DEBIAN/prerm"
 install -m 0644 "${ROOT_DIR}/packaging/bookrag.env" "${STAGE_DIR}/etc/bookrag/bookrag.env"
+
+if [[ -f "${ROOT_DIR}/packaging/man/bookrag.1" ]]; then
+  install -m 0644 "${ROOT_DIR}/packaging/man/bookrag.1" "${STAGE_DIR}/usr/share/man/man1/bookrag.1"
+  gzip -f "${STAGE_DIR}/usr/share/man/man1/bookrag.1"
+fi
 
 mkdir -p "${ROOT_DIR}/dist"
 dpkg-deb --root-owner-group --build "${STAGE_DIR}" "${ROOT_DIR}/dist/${PKG_NAME}_${VERSION}_${ARCH}.deb"

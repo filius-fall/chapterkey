@@ -25,6 +25,7 @@ ChapterKey can also expose the same indexed books through a web API and MCP serv
   - OpenRouter
   - NVIDIA NIM / build.nvidia.com style embedding endpoints
   - other OpenAI-compatible endpoints
+- Interactive first-run wizard (`bookrag init`) with provider presets
 - Spoiler-aware retrieval modes:
   - `full_context`
   - `book_only`
@@ -84,6 +85,7 @@ The Debian package installs:
 - `bookrag`
 - `bookrag-api`
 - `bookrag-mcp`
+- man page (`man bookrag`)
 
 Sample runtime env file:
 
@@ -153,59 +155,33 @@ Do not commit `.env`.
 Run:
 
 ```bash
+bookrag init
+```
+
+This launches an interactive wizard that:
+
+1. Asks how you want to run ChapterKey (Ollama, OpenRouter, or Custom)
+2. If Ollama: checks if Ollama is installed, starts it, pulls an embedding model
+3. If OpenRouter: prompts for API key and embedding model
+4. If Custom: offers presets for NVIDIA NIM and Mistral, or manual endpoint setup
+5. Validates the embedding endpoint before finishing
+6. Creates a default library
+
+For the Custom option, sub-menu presets include:
+
+- **NVIDIA NIM** (build.nvidia.com, free tier) — model `nvidia/nv-embedqa-e5-v5`
+- **Mistral** (mistral.ai) — model `mistral-embed`
+- **Other** — manual setup for any OpenAI-compatible API (LiteLLM, vLLM, LocalAI, etc.)
+
+Alternatively, for workspace-based workflows:
+
+```bash
 bookrag setup
 ```
 
-By default this creates:
+### 2. Add books
 
-```text
-~/Documents/BookRAG
-~/Documents/BookRAG/input
-~/Documents/BookRAG/output
-~/Documents/BookRAG/.bookrag
-```
-
-During setup, ChapterKey will:
-
-1. Ask whether to use the default `~/Documents/BookRAG` workspace
-2. Let you choose a custom workspace root if you want
-3. Ask whether to use default `input` and `output` folders
-4. Let you choose custom input/output folders separately
-5. Validate directories before saving the workspace
-6. Ask you to configure an embedding provider
-
-### 2. Choose provider
-
-The CLI setup currently supports:
-
-- Ollama
-- OpenRouter
-- Custom endpoint
-
-Examples:
-
-- Ollama local:
-  - base URL: `http://127.0.0.1:11434/v1`
-  - model: `embeddinggemma`
-- OpenRouter:
-  - base URL: `https://openrouter.ai/api/v1`
-  - embedding model: `qwen/qwen3-embedding-8b`
-- NVIDIA NIM / build.nvidia.com:
-  - use `Custom endpoint`
-  - base URL: `https://integrate.api.nvidia.com/v1`
-  - model: `nvidia/nv-embedqa-e5-v5`
-
-The setup flow validates the embedding endpoint before finishing.
-
-### 3. Add books
-
-Drop `.epub` or `.pdf` files into your configured input folder.
-
-Default input folder:
-
-```text
-~/Documents/BookRAG/input
-```
+Drop `.epub` or `.pdf` files into the input folder (default: `~/BookRAG_Input`).
 
 Then list them:
 
@@ -213,18 +189,32 @@ Then list them:
 bookrag list
 ```
 
-### 4. Convert books
+### 3. Index books
 
-Convert one book by number:
+Using the local CLI:
 
 ```bash
-bookrag convert 1
+bookrag local scan --library-id 1
 ```
 
-Convert everything in the input folder:
+Or using workspace convert:
 
 ```bash
 bookrag convert --all
+```
+
+### 4. Query
+
+Retrieve context passages:
+
+```bash
+bookrag local query --library-id 1 --question "What happens in chapter 5?"
+```
+
+Get an LLM answer with citations:
+
+```bash
+bookrag local answer --library-id 1 --question "Who is the traveler?"
 ```
 
 Check workspace status:
@@ -306,6 +296,12 @@ cd ~/Documents/BookRAG/output
 ```
 
 ## CLI commands
+
+### First-run setup
+
+```bash
+bookrag init
+```
 
 ### Workspace commands
 

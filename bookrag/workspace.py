@@ -123,16 +123,42 @@ Use this ChapterKey workspace as the retrieval backend for books instead of load
 1. Use the ChapterKey MCP server or REST API instead of reading raw vector files.
 2. Call `list_libraries` and `list_books` first.
 3. For spoiler-safe reading, prefer `query_context` with:
-   - `context_mode=\"no_spoiler\"`
+   - `context_mode="no_spoiler"`
    - `active_book_id=<current book id>`
    - `active_chapter_index=<current chapter index>`
-4. For full-book or full-series analysis, use `spoiler_mode=\"full_context\"` or `through_series_boundary`.
+4. For full-book or full-series analysis, use `spoiler_mode="full_context"` or `through_series_boundary`.
 5. When books in a series are not linked yet, call `suggest_series` and then confirm or adjust the order before connecting them.
+
+## CLI Quick Reference
+
+- `bookrag init` — Interactive first-run wizard (Ollama, OpenRouter, Custom with NVIDIA NIM/Mistral presets)
+- `bookrag setup` — Initialize workspace with input/output directories
+- `bookrag list` — List pending input books
+- `bookrag convert --all` — Convert all pending books to vector DB
+- `bookrag local scan --library-id 1` — Index books from input folder
+- `bookrag local query --library-id 1 --question "..."` — Retrieve context passages
+- `bookrag local answer --library-id 1 --question "..."` — Get LLM answer with citations
+- `bookrag update` — Update ChapterKey (git/pip/dpkg depending on install mode)
+
+## Supported Providers
+
+- **Ollama** — Local, free, private. Default model: `nomic-embed-text`
+- **OpenRouter** — Cloud, 200+ models. Default model: `openai/text-embedding-3-small`
+- **NVIDIA NIM** — Cloud, free tier at build.nvidia.com. Model: `nvidia/nv-embedqa-e5-v5`
+- **Mistral** — Cloud. Model: `mistral-embed`
+- **Custom** — Any OpenAI-compatible endpoint (LiteLLM, vLLM, LocalAI, etc.)
 
 ## Series Assistant Guidance
 
 When titles or filenames contain volume markers like `Vol 01`, `Book 2`, or `Part 3`, use `suggest_series` first.
 If the suggestion is ambiguous, ask the user for confirmation instead of guessing.
+
+## Spoiler-Safe Retrieval Modes
+
+- `full_context` — Search everything indexed
+- `book_only` — Restrict to one book
+- `through_chapter` — Only use content up to the current chapter
+- `through_series_boundary` — Only use content up to the current point in a series
 
 ## Installation Notes
 
@@ -142,11 +168,14 @@ If the suggestion is ambiguous, ask the user for confirmation instead of guessin
 """
     (bundle_dir / "BOOKRAG_SKILL.md").write_text(skill_text)
 
+    mcp_command = "bookrag-mcp" if Path("/usr/bin/bookrag-mcp").exists() else str(sys.executable)
+    mcp_args = [] if Path("/usr/bin/bookrag-mcp").exists() else [str(project_root / "server.py")]
+
     claude_config = {
         "mcpServers": {
             "bookrag": {
-                "command": "python",
-                "args": [str(project_root / "server.py")],
+                "command": mcp_command,
+                "args": mcp_args,
                 "env": {
                     "BOOKRAG_API_URL": api_url,
                     "BOOKRAG_API_TOKEN": "paste-your-bookrag-api-token-here",
@@ -164,29 +193,63 @@ Generated for workspace: `{root}`
 ## Files
 
 - `BOOKRAG_SKILL.md`: prompt/skill instructions for coding agents
-- `claude-code.mcp.json`: MCP snippet for Claude Code style clients
-- `opencode.mcp.json`: MCP snippet for OpenCode style clients
+- `claude-code.mcp.json`: MCP snippet for Claude Code
+- `opencode.mcp.json`: MCP snippet for OpenCode
 
-## Recommended Setup
+## Quick Setup
 
-1. Start the API:
-   `python {project_root / "app_server.py"}`
-2. Create an API token by logging into the web UI or using the REST login endpoint.
-3. Merge one of the MCP JSON snippets into your tool config.
-4. Copy the contents of `BOOKRAG_SKILL.md` into your agent skill or project instructions.
+### OpenCode
 
-## Factory Droid / Custom Clients
+Copy the contents of `opencode.mcp.json` into your OpenCode MCP configuration:
 
-Any client that supports MCP stdio can reuse the same `server.py` command.
-If the client only supports REST, use these endpoints:
+```bash
+cat opencode.mcp.json
+```
 
-- `GET /libraries`
-- `GET /libraries/{{id}}/books`
-- `GET /libraries/{{id}}/series/suggestions`
-- `POST /query/context`
-- `POST /chat/answer`
-- `POST /series`
-- `POST /series/{{id}}/books/reorder`
+Then add it to your `~/.config/opencode/config.json` or project-level `.opencode.json`.
+
+### Claude Code
+
+Copy the contents of `claude-code.mcp.json` into your Claude Code MCP configuration:
+
+```bash
+claude mcp add bookrag -- bookrag-mcp
+```
+
+Or manually merge the JSON into `~/.claude/claude_desktop_config.json`.
+
+### Other MCP Clients
+
+Any client that supports MCP stdio can reuse the same command:
+- If installed via deb: `bookrag-mcp`
+- If running from source: `python {project_root / "server.py"}`
+
+Set environment variables:
+- `BOOKRAG_API_URL` — REST API URL (default: http://127.0.0.1:8000)
+- `BOOKRAG_API_TOKEN` — Your API token
+
+## REST API Endpoints
+
+If the client only supports REST:
+
+- `GET /health` — Health check
+- `GET /libraries` — List libraries
+- `GET /libraries/{{id}}/books` — List books
+- `GET /providers` — List providers
+- `POST /query/context` — Retrieve context with spoiler controls
+- `POST /chat/answer` — Get LLM answer with citations
+- `POST /series` — Create series
+- `POST /series/{{id}}/books/reorder` — Reorder series books
+
+## Start the API
+
+```bash
+# If installed via deb:
+bookrag-api
+
+# If running from source:
+python {project_root / "app_server.py"}
+```
 
 The API is designed so an external agent can inspect books, propose series ordering, and then submit the final series linkage.
 """

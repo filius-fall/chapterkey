@@ -1,0 +1,240 @@
+.TH BOOKRAG 1 "April 2026" "ChapterKey" "User Commands"
+.SH NAME
+bookrag \- CLI-first book retrieval toolkit for EPUB and PDF indexing
+.SH SYNOPSIS
+.B bookrag
+[\fB\-\-base-url\fR \fIURL\fR] \fICOMMAND\fR [\fIARGS\fR]...
+.br
+.B bookrag
+\fBinit\fR
+.br
+.B bookrag
+\fBsetup\fR
+.br
+.B bookrag
+\fBlist\fR
+.br
+.B bookrag
+\fBconvert\fR [\fIINDEX\fR] [\fB\-\-all\fR] [\fB\-\-output\fR \fIDIR\fR]
+.br
+.B bookrag
+\fBstatus\fR
+.br
+.B bookrag
+\fBseries\fR {\fBcreate\fR,\fBreorder\fR} ...
+.br
+.B bookrag
+\fBlocal\fR {\fBscan\fR,\fBwatch\fR,\fBquery\fR,\fBanswer\fR,...} [\fIOPTIONS\fR]
+.br
+.B bookrag
+\fBupdate\fR [\fB\-\-check\fR]
+.SH DESCRIPTION
+ChapterKey (command name \fBbookrag\fR) is a self-hosted book indexing and
+retrieval tool for EPUB and PDF files.  It converts books into a local
+ChromaDB vector database with spoiler-aware retrieval and optional series
+management.
+
+The product name is ChapterKey.  The command, Python package, and
+compatibility surface remain \fBbookrag\fR.
+.SH COMMANDS
+.TP
+.B init
+Interactive first-run wizard.  Prompts for an LLM provider and embedding
+model, creates a default library, and prints next steps.  Choices:
+
+.RS
+.IP 1. 4
+Ollama (local, free, private)
+.IP 2. 4
+OpenRouter (cloud, 200+ models, pay-per-use)
+.IP 3. 4
+Custom (NVIDIA NIM, Mistral, or any OpenAI-compatible endpoint)
+.RE
+
+The Custom option offers sub-menu presets for NVIDIA NIM and Mistral with
+pre-filled defaults, plus a manual entry mode for other endpoints.
+.TP
+.B setup
+Initialize a ChapterKey workspace.  Creates input/output directories,
+a workspace config, and integration files for external agents.
+.TP
+.B list
+List pending input books in the current workspace.
+.TP
+.B status
+Show workspace status including conversion state of each file.
+.TP
+.B convert [\fIINDEX\fR] [\fB\-\-all\fR] [\fB\-\-output\fR \fIDIR\fR]
+Convert workspace input books into the vector database.
+\fIINDEX\fR is the numeric position from \fBbookrag list\fR.
+Use \fB\-\-all\fR to convert every pending file.
+.TP
+.B series {\fBcreate\fR,\fBreorder\fR}
+Create named series or reorder books within a series.
+.TP
+.B local scan [\fIOPTIONS\fR]
+Scan the input directory, extract text from EPUB/PDF files, generate
+embeddings, and store them in ChromaDB.
+.RS
+.PP
+Key options:
+.IP "\fB\-\-library-id\fR \fIID\fR" 4
+Target library (default: 1).
+.IP "\fB\-\-embedding-provider-id\fR \fIID\fR" 4
+Override the embedding provider.
+.IP "\fB\-\-embedding-model\fR \fIMODEL\fR" 4
+Override the embedding model.
+.IP "\fB\-\-chunk-size\fR \fIN\fR" 4
+Text chunk size in tokens (default: 750).
+.IP "\fB\-\-chunk-overlap\fR \fIN\fR" 4
+Chunk overlap in tokens (default: 100).
+.IP "\fB\-\-delete-source\fR / \fB\-\-no-delete-source\fR" 4
+Delete original files after successful indexing.
+.IP "\fB\-\-limit\fR \fIN\fR" 4
+Only process the first N files.
+.RE
+.TP
+.B local watch [\fIOPTIONS\fR]
+Like \fBlocal scan\fR, but runs continuously at a configurable interval.
+.RS
+.PP
+Additional options:
+.IP "\fB\-\-interval-sec\fR \fIN\fR" 4
+Seconds between scans (default: 60).
+.IP "\fB\-\-limit-per-scan\fR \fIN\fR" 4
+Max files to process per scan cycle.
+.RE
+.TP
+.B local query \fB\-\-question\fR \fIQ\fR [\fIOPTIONS\fR]
+Retrieve relevant context passages from the vector database.
+.RS
+.PP
+Key options:
+.IP "\fB\-\-question\fR \fIQ\fR (required)" 4
+The question or search query.
+.IP "\fB\-\-context-mode\fR \fIMODE\fR" 4
+One of: full_context, no_spoiler (default: full_context).
+.IP "\fB\-\-spoiler-mode\fR \fIMODE\fR" 4
+One of: full_context, book_only, through_chapter,
+through_series_boundary (default: full_context).
+.IP "\fB\-\-active-book-id\fR \fIID\fR" 4
+Restrict retrieval to this book.
+.IP "\fB\-\-active-chapter-index\fR \fIN\fR" 4
+Restrict retrieval up to this chapter.
+.IP "\fB\-\-top-k\fR \fIN\fR" 4
+Number of passages to return (default: 5).
+.RE
+.TP
+.B local answer \fB\-\-question\fR \fIQ\fR [\fIOPTIONS\fR]
+Like \fBlocal query\fR, but also generates an LLM answer with citations.
+.TP
+.B local books list [\fB\-\-library-id\fR \fIID\fR]
+List indexed books in a library.
+.TP
+.B local providers {\fBlist\fR,\fBsync\fR}
+List configured providers or sync from environment variables.
+.TP
+.B update [\fB\-\-check\fR]
+Update ChapterKey.  Uses git pull, pip, or dpkg depending on install mode.
+Use \fB\-\-check\fR to see what would happen without changing anything.
+.SH PROVIDERS
+ChapterKey supports multiple embedding providers:
+.TP
+.B Ollama
+Local, free, private.  Requires Ollama running locally with an embedding
+model pulled (e.g. \fInomic-embed-text\fR).
+.TP
+.B OpenRouter
+Cloud, 200+ models, pay-per-use.  Requires an API key from
+https://openrouter.ai/keys.  Default embedding model:
+\fIopenai/text-embedding-3-small\fR.
+.TP
+.B Custom / NVIDIA NIM
+Any OpenAI-compatible API endpoint.  The NVIDIA NIM preset uses
+https://build.nvidia.com free tier with model
+\fInvidia/nv-embedqa-e5-v5\fR.  Other presets include Mistral.
+Custom endpoints can also be configured manually.
+.SH FILES
+.TP
+.I /etc/bookrag/bookrag.env
+Default environment file for deb installs.
+.TP
+.I ~/Documents/BookRAG/
+Default workspace root.
+.TP
+.I ~/.local/share/bookrag/
+Default data directory (SQLite + ChromaDB).
+.TP
+.I /opt/bookrag/
+Installed source and venv (deb installs).
+.TP
+.I /var/log/bookrag-bootstrap.log
+Bootstrap log for deb installs.
+.SH ENVIRONMENT
+.TP
+.B BOOKRAG_APP_SECRET
+Secret key for session encryption.
+.TP
+.B BOOKRAG_API_HOST\fR, \fBBOOKRAG_API_PORT
+API bind host and port.
+.TP
+.B BOOKRAG_DATA_DIR
+Base data directory.
+.TP
+.B BOOKRAG_INPUT_DIR\fR, \fBBOOKRAG_OUTPUT_DIR
+Input and output directories.
+.TP
+.B BOOKRAG_TOP_K
+Number of context passages (default: 5).
+.TP
+.B BOOKRAG_CHUNK_SIZE\fR, \fBBOOKRAG_CHUNK_OVERLAP
+Text chunking parameters.
+.SH EXAMPLES
+Initialize with interactive wizard:
+.RS
+.EX
+bookrag init
+.EE
+.RE
+
+Convert all books in workspace:
+.RS
+.EX
+bookrag convert --all
+.EE
+.RE
+
+Index books from input folder:
+.RS
+.EX
+bookrag local scan --library-id 1
+.EE
+.RE
+
+Query with spoiler-safe retrieval:
+.RS
+.EX
+bookrag local query --library-id 1 --question "Who is the traveler?" \
+  --context-mode no_spoiler --active-book-id 3 --active-chapter-index 15
+.EE
+.RE
+
+Get an LLM answer with citations:
+.RS
+.EX
+bookrag local answer --library-id 1 --question "What happens in chapter 5?"
+.EE
+.RE
+
+Update ChapterKey:
+.RS
+.EX
+bookrag update --check
+bookrag update
+.EE
+.RE
+.SH SEE ALSO
+.IR ollama (1),
+.IR chroma (1)
+.SH BUGS
+Report issues at https://github.com/filius-fall/chapterkey/issues

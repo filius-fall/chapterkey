@@ -770,7 +770,7 @@ _CUSTOM_PRESETS: list[dict[str, str]] = [
         "name": "NVIDIA NIM",
         "provider_type": "nvidia_nim",
         "base_url": "https://integrate.api.nvidia.com/v1",
-        "embed_model": "nvidia/llama-3.2-nv-embedqa-1b-v2",
+        "embed_model": "nvidia/nv-embedqa-e5-v5",
         "needs_api_key": "yes",
         "api_key_hint": "Get a free key at https://build.nvidia.com/ (click 'Get API Key')",
     },
