@@ -100,7 +100,7 @@ echo ""
 echo "Setting up SSH remote and pushing..."
 git remote set-url origin "git@github.com:filius-fall/$REPO_NAME.git" 2>/dev/null || \
     git remote add origin "git@github.com:filius-fall/$REPO_NAME.git"
-git push origin master:main
+git push origin main
 
 echo ""
 echo -e "${GREEN}Setup complete!${NC}"

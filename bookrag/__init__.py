@@ -2,7 +2,7 @@
 
 __version__ = "2.0.0"
 __update_repo__ = "filius-fall/chapterkey"
-__default_branch__ = "master"
+__default_branch__ = "main"
 
 
 def create_app():
