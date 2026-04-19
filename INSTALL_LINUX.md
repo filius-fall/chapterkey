@@ -60,6 +60,8 @@ Then run:
 bookrag setup
 ```
 
+For tagged versions, the `.deb` can also be downloaded from GitHub Releases.
+
 ## Building the Debian package
 
 From the repo root:
@@ -84,6 +86,23 @@ Runtime configuration sample:
 
 ```text
 /etc/bookrag/bookrag.env
+```
+
+## Docker from the repo
+
+Docker images are not published publicly. If you want Docker, build locally from the repo.
+
+```bash
+cp .env.example .env
+./scripts/docker_local.sh up
+```
+
+Other helper commands:
+
+```bash
+./scripts/docker_local.sh build
+./scripts/docker_local.sh logs
+./scripts/docker_local.sh down
 ```
 
 ## Setup behavior

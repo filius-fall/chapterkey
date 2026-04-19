@@ -89,6 +89,27 @@ Sample runtime env file:
 /etc/bookrag/bookrag.env
 ```
 
+You can also download the `.deb` from GitHub Releases once a tagged release has been built.
+
+### Option 3: Docker from the repo
+
+Docker images are not published publicly. Docker users should build locally from the repo.
+
+Recommended flow:
+
+```bash
+cp .env.example .env
+./scripts/docker_local.sh up
+```
+
+The helper script also supports:
+
+```bash
+./scripts/docker_local.sh build
+./scripts/docker_local.sh logs
+./scripts/docker_local.sh down
+```
+
 ## Environment file
 
 Use this as the source of truth for what `.env` should look like:
@@ -201,6 +222,21 @@ Check workspace status:
 bookrag status
 ```
 
+## Releases
+
+BookRAG release distribution is:
+
+- source from the GitHub repo
+- `.deb` from GitHub Releases
+- Docker built locally from the repo
+
+Tagged releases are built by GitHub Actions and attach:
+
+- `bookrag_<version>_amd64.deb`
+- `SHA256SUMS.txt`
+
+Docker is intentionally not published to any public registry.
+
 ## Input and deletion behavior
 
 BookRAG treats default and custom input folders differently.
@@ -235,12 +271,28 @@ The output folder contains the working BookRAG database:
 - `bookrag.sqlite3`
 - `chroma_db/`
 - `managed_books/`
+- `bookrag_output_api.py`
+- `bookrag-output`
+- `bookrag-output-query`
+- `bookrag-output-admin`
+- `.bookrag-output.json`
 
 Each indexed book remains separately identifiable inside the shared output database, which is important for:
 
 - spoiler-safe retrieval
 - series linking
 - per-book context restrictions
+
+The generated helper files let another local tool operate directly from the output folder without needing to know your workspace internals.
+
+Example:
+
+```bash
+cd ~/Documents/BookRAG/output
+./bookrag-output status
+./bookrag-output list-books
+./bookrag-output-query --question "What happened here?"
+```
 
 ## CLI commands
 
@@ -250,10 +302,19 @@ Each indexed book remains separately identifiable inside the shared output datab
 bookrag setup
 bookrag list
 bookrag status
+bookrag update --check
+bookrag update
 bookrag convert 1
 bookrag convert --all
 bookrag convert --all --output /path/to/another/output
 ```
+
+`bookrag update` uses the current install mode:
+
+- if BookRAG is running from a git checkout, it runs `git pull --ff-only` and reinstalls from the checkout
+- otherwise it runs `python -m pip install --upgrade bookrag`
+
+Use `bookrag update --check` to see what it would do without changing anything.
 
 ### Series commands
 

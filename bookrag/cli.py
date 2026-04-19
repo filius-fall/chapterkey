@@ -7,12 +7,14 @@ import getpass
 import json
 import secrets
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 import requests
 
+from bookrag import __version__
 from bookrag.folder_ingest import FolderIngestor, LocalIngestConfig, SKIP_SUFFIXES, SUPPORTED_EXTENSIONS
 from bookrag.services import BookRAGService
 from bookrag.settings import AppSettings
@@ -23,8 +25,14 @@ from bookrag.workspace import (
     ensure_workspace_dirs,
     find_workspace_root,
     load_workspace,
+    load_output_bundle,
     save_workspace,
+    workspace_bundle_action,
+    workspace_convert_books,
+    workspace_input_listing,
+    workspace_status_data,
     write_integration_bundle,
+    write_output_bundle,
     workspace_dir,
     workspace_service,
 )
@@ -169,39 +177,8 @@ def _validate_embedding_provider(provider_type: str, base_url: str, api_key: str
         return False, str(exc)
 
 
-def _workspace_pending_files(input_dir: Path) -> list[Path]:
-    if not input_dir.exists():
-        return []
-    files = []
-    for path in sorted(input_dir.iterdir()):
-        if (
-            path.is_file()
-            and not path.name.startswith(".")
-            and path.suffix.lower() not in SKIP_SUFFIXES
-            and path.suffix.lower() in SUPPORTED_EXTENSIONS
-        ):
-            files.append(path)
-    return files
-
-
 def _workspace_file_statuses(service: BookRAGService, library_id: int, input_dir: Path) -> list[dict[str, Any]]:
-    statuses: list[dict[str, Any]] = []
-    for path in _workspace_pending_files(input_dir):
-        status = {
-            "path": path,
-            "state": "pending",
-            "book": None,
-        }
-        try:
-            fingerprint = service.file_fingerprint(path)
-            book = service.find_verified_book_by_fingerprint(library_id, fingerprint)
-            if book:
-                status["state"] = "indexed_duplicate"
-                status["book"] = book
-        except Exception:
-            status["state"] = "pending"
-        statuses.append(status)
-    return statuses
+    return workspace_input_listing(service, library_id, input_dir)
 
 
 def _print_pending_files(files: list[dict[str, Any]], input_dir: Path) -> None:
@@ -225,6 +202,48 @@ def _resolve_series_id(service: BookRAGService, library_id: int, value: str) -> 
         if series["name"] == value:
             return int(series["id"])
     raise ValueError(f"Series not found: {value}")
+
+
+def _source_checkout_root() -> Path | None:
+    candidate = Path(__file__).resolve().parent.parent
+    if (candidate / "setup.py").exists() and (candidate / ".git").exists():
+        return candidate
+    return None
+
+
+def _run_update(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="bookrag update", description="Update BookRAG to the latest available code")
+    parser.add_argument("--check", action="store_true", help="Show the detected update strategy without changing anything")
+    args = parser.parse_args(argv)
+
+    source_root = _source_checkout_root()
+    if source_root is not None:
+        strategy = "git-checkout"
+        commands = [
+            ["git", "pull", "--ff-only"],
+            [sys.executable, "-m", "pip", "install", "--upgrade", "."],
+        ]
+        workdir = source_root
+    else:
+        strategy = "pip-package"
+        commands = [
+            [sys.executable, "-m", "pip", "install", "--upgrade", "bookrag"],
+        ]
+        workdir = Path.cwd()
+
+    print(f"Current BookRAG version: {__version__}")
+    print(f"Update strategy: {strategy}")
+    for command in commands:
+        print("Command:", " ".join(command))
+
+    if args.check:
+        return
+
+    for command in commands:
+        completed = subprocess.run(command, cwd=workdir, check=False, text=True)
+        if completed.returncode != 0:
+            raise ValueError(f"Update failed while running: {' '.join(command)}")
+    print("Update completed. Restart BookRAG commands to use the latest installed code.")
 
 
 def _run_setup(argv: list[str]) -> None:
@@ -342,6 +361,7 @@ def _run_setup(argv: list[str]) -> None:
     bundle_dir = write_integration_bundle(root, config)
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_output_bundle(root, config, output_dir)
     print(f"Workspace saved in {workspace_dir(root)}")
     print(f"Input directory: {input_dir}")
     print(f"Output directory: {output_dir}")
@@ -368,24 +388,17 @@ def _run_status(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(prog="bookrag status", description="Show workspace status")
     parser.parse_args(argv)
     root, config, secrets_data = load_workspace()
-    service, _, output_dir = workspace_service(root, config, secrets_data)
-    library = service.ensure_default_library()
-    books = service.list_books(int(library["id"]))
-    jobs = service.list_jobs()
-    pending = _workspace_pending_files(Path(config["input_dir"]).expanduser().resolve())
-    delete_policy = "auto-delete after verified conversion" if config.get("input_is_managed_default", False) else (
-        "ask after each verified conversion" if config.get("delete_after_success", False) else "keep originals"
-    )
-    print(f"Workspace: {root}")
-    print(f"Input: {config['input_dir']}")
-    print(f"Output: {output_dir}")
-    print(f"Input mode: {'managed default' if config.get('input_is_managed_default', False) else 'custom'}")
-    print(f"Delete policy: {delete_policy}")
-    print(f"Pending input files: {len(pending)}")
-    print(f"Indexed books: {len([book for book in books if book['ingest_status'] == 'ready'])}")
-    print(f"Failed books: {len([book for book in books if book['ingest_status'] == 'failed'])}")
-    print(f"Series: {len(service.list_series(int(library['id'])))}")
-    print(f"Jobs tracked: {len(jobs)}")
+    data = workspace_status_data({"root": root, "config": config, "secrets_data": secrets_data, "manifest": {"output_dir": str(config["output_dir"])}})
+    print(f"Workspace: {data['workspace_root']}")
+    print(f"Input: {data['input_dir']}")
+    print(f"Output: {data['output_dir']}")
+    print(f"Input mode: {data['input_mode']}")
+    print(f"Delete policy: {data['delete_policy']}")
+    print(f"Pending input files: {data['pending_input_files']}")
+    print(f"Indexed books: {data['indexed_books']}")
+    print(f"Failed books: {data['failed_books']}")
+    print(f"Series: {data['series_count']}")
+    print(f"Jobs tracked: {data['jobs_tracked']}")
 
 
 def _run_convert(argv: list[str]) -> None:
@@ -398,34 +411,31 @@ def _run_convert(argv: list[str]) -> None:
         raise ValueError("Provide an index from `bookrag list` or use --all")
     root, config, secrets_data = load_workspace()
     input_dir = Path(config["input_dir"]).expanduser().resolve()
-    pending = _workspace_pending_files(input_dir)
+    service, _, _ = workspace_service(root, config, secrets_data)
+    library = service.ensure_default_library()
+    pending = workspace_input_listing(service, int(library["id"]), input_dir)
     if not pending:
         print("No pending EPUB/PDF files found.")
         return
     if args.index is not None and (args.index < 1 or args.index > len(pending)):
         raise ValueError(f"Index must be between 1 and {len(pending)}")
-    selected = pending if args.all else [pending[args.index - 1]]
     output_override = Path(args.output).expanduser().resolve() if args.output else None
-    service, provider_info, resolved_output = workspace_service(root, config, secrets_data, output_override=output_override)
-    library = service.ensure_default_library()
-    results: list[dict[str, Any]] = []
-    for path in selected:
-        delete_source = _convert_delete_source_choice(config, path)
-        result = service.ingest_file_from_path(
-            path,
-            library_id=int(library["id"]),
-            embedding_provider_id=int(provider_info["embedding_provider_id"]),
-            embedding_model=str(provider_info["embedding_model"]),
-            delete_source=delete_source,
-        )
-        results.append(result)
-    for item in results:
+    default_delete = None
+    if args.index is not None and not args.all:
+        default_delete = _convert_delete_source_choice(config, Path(pending[args.index - 1]["path"]))
+    result_data = workspace_convert_books(
+        {"root": root, "config": config, "secrets_data": secrets_data, "manifest": {"output_dir": str(output_override or config["output_dir"])}},
+        index=args.index,
+        convert_all=args.all,
+        delete_original=default_delete,
+    )
+    for item in result_data["results"]:
         book = item.get("book", {})
         if item.get("duplicate"):
             print(f"Skipped duplicate: {book.get('title') or book.get('file_name')}")
         else:
             print(f"Converted: {book.get('title')} (book_id={book.get('id')}, job_id={item.get('job_id')})")
-    print(f"Output stored in: {resolved_output}")
+    print(f"Output stored in: {result_data['output_dir']}")
 
 
 def _run_series(argv: list[str]) -> bool:
@@ -499,6 +509,9 @@ def _run_simple_cli(argv: list[str]) -> bool:
         return True
     if command == "convert":
         _run_convert(argv[1:])
+        return True
+    if command == "update":
+        _run_update(argv[1:])
         return True
     if command == "series":
         return _run_series(argv[1:])

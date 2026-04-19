@@ -82,7 +82,8 @@ class DocumentIngestor:
             text = page.get_text("text").strip()
             if force_ocr or not text:
                 if not (ocr_provider and ocr_config and ocr_model):
-                    raise ValueError("OCR provider and model are required for scanned or OCR-forced PDFs")
+                    logger.info("Skipping page %d (no text, no OCR configured)", page_index + 1)
+                    continue
                 pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2))
                 image_bytes = pixmap.tobytes("png")
                 text = ocr_provider.ocr_images(ocr_config, ocr_model, [("image/png", image_bytes)]).strip()
