@@ -1,159 +1,82 @@
-# Quick Start Guide
+# Quick Start
 
-Get started with EPUB RAG MCP Server in 5 minutes.
-
-## Prerequisites
-
-- Python 3.9 or higher
-- OpenRouter API key (get free at https://openrouter.ai/keys)
-- Claude Code installed
-
-## Step 1: Install Dependencies
+## Local Workspace Flow
 
 ```bash
-cd /home/sreeram/Downloads/Telegram\ Desktop/epub-rag-mcp
-pip install -r requirements.txt
+python3 -m venv ~/.venvs/bookrag
+source ~/.venvs/bookrag/bin/activate
+pip install --upgrade pip
+pip install .
+bookrag setup
 ```
 
-## Step 2: Configure API Key
+By default, setup creates:
+
+```text
+~/Documents/BookRAG
+~/Documents/BookRAG/input
+~/Documents/BookRAG/output
+```
+
+After setup:
+
+1. Drop `.epub` or `.pdf` files into the workspace input folder.
+2. Run `bookrag list`.
+3. Run `bookrag convert 1` or `bookrag convert --all`.
+4. Inspect output in the workspace output folder.
+
+If you choose custom folders during setup, BookRAG validates them before saving the workspace.
+
+Deletion behavior:
+
+- default managed input folder: auto-delete after verified conversion
+- custom input folder: optional delete preference, with one more confirmation before each deletion
+
+`bookrag setup` also creates:
+
+```text
+~/Documents/BookRAG/.bookrag/integrations/
+```
+
+That folder contains ready-to-copy integration files for Claude Code, OpenCode, and other MCP-capable agent clients.
+
+## Series Workflow
 
 ```bash
-cp .env.template .env
+bookrag series books
+bookrag series suggest
+bookrag series create "My Series"
+bookrag series connect "My Series" 1,2,3
 ```
 
-Edit `.env` and add your API key:
-```
-OPENROUTER_API_KEY=your_actual_key_here
-```
+Use `bookrag series suggest` when filenames contain markers like `Vol 01`, `Book 2`, or `Part 3`.
 
-## Step 3: Test Installation
+## Agent Workflow
+
+If you want Claude Code, OpenCode, or Factory Droid to use BookRAG:
+
+1. Start the API:
 
 ```bash
-python test_installation.py
+python app_server.py
 ```
 
-All tests should pass. If not, follow the instructions to fix issues.
+2. Configure the MCP server using files from `.bookrag/integrations/`.
+3. Give the agent the generated `BOOKRAG_SKILL.md` instructions.
+4. Have the agent use `suggest_series` before connecting books into a series.
 
-## Step 4: Start the Server
+## Spoiler-Safe Retrieval
 
-```bash
-python server.py
-```
+For first-time reading:
 
-The server is now running and waiting for MCP connections.
+- use `context_mode=no_spoiler`
+- provide `active_book_id`
+- provide `active_chapter_index`
 
-## Step 5: Configure Claude Code
+For full analysis:
 
-Add this to your Claude Code settings (`~/.config/claude-code/config.json`):
+- use `spoiler_mode=full_context`
 
-```json
-{
-  "mcpServers": {
-    "epub-rag-mcp": {
-      "command": "python",
-      "args": ["/home/sreeram/Downloads/Telegram Desktop/epub-rag-mcp/server.py"]
-    }
-  }
-}
-```
+For series-aware spoiler limits:
 
-**Note:** Update the path if you installed the server elsewhere.
-
-## Step 6: Restart Claude Code
-
-Close and reopen Claude Code to load the MCP server.
-
-## Step 7: Use It!
-
-Now you can use the MCP tools in Claude Code:
-
-### Load an EPUB
-```
-Use tool: load_epub
-epub_path: "/home/sreeram/Downloads/Telegram Desktop/Myst,_Might,_and_Mayhem.epub"
-```
-
-### Ask a Question (with Gemini LLM)
-```
-Use tool: ask_question_with_llm
-question: "What is the main plot about?"
-model: "google/gemini-2.5-flash-preview"
-```
-
-### List Available Models
-```
-Use tool: list_available_models
-```
-
-### List Loaded EPUBs
-```
-Use tool: list_epubs
-```
-
-## Common Issues
-
-### "OPENROUTER_API_KEY is required"
-- Make sure you created `.env` from `.env.template`
-- Add your actual API key (not the placeholder)
-
-### "EPUB file not found"
-- Use absolute paths
-- Check file spelling and extension (.epub)
-
-### Slow on First Load
-- Normal! First load generates embeddings
-- Subsequent queries will be fast (<1 second)
-
-### Server Not Found in Claude Code
-- Make sure `server.py` is running
-- Check the path in Claude Code settings
-- Restart Claude Code after configuration
-
-## Example Workflow
-
-1. **Load EPUB:**
-   ```
-   Use tool: load_epub
-   epub_path: "/path/to/book.epub"
-   ```
-
-2. **Ask Questions (with LLM):**
-   ```
-   Use tool: ask_question_with_llm
-   question: "Who are the main characters?"
-   model: "google/gemini-2.5-flash-preview"
-   ```
-
-3. **Get Info:**
-   ```
-   Use tool: get_epub_info
-   epub_name: "Book Title"
-   ```
-
-4. **Clear When Done:**
-   ```
-   Use tool: clear_epub
-   epub_name: "Book Title"
-   ```
-
-## Cost Estimates
-
-Typical costs for 1M tokens:
-- **Embeddings**: ~₹0.03 (text-embedding-3-small)
-- **Gemini 2.5 Flash LLM**: ~₹0.83 per 1M output tokens (default - best value)
-- **Gemini 1.5 Flash LLM**: ~₹0.25 per 1M output tokens (cheaper)
-- **Gemini 1.5 Flash-8B LLM**: ~₹0.08 per 1M output tokens (most cost-effective)
-- **Total**: Very affordable compared to premium LLM services
-
-## Need Help?
-
-- Check `README.md` for detailed documentation
-- Run `test_installation.py` to diagnose issues
-- Review `.env.template` for configuration options
-
-## Next Steps
-
-- Try loading different EPUB files
-- Experiment with `ask_question` for various queries
-- Adjust `CHUNK_SIZE` and `TOP_K` in `.env` for better results
-- Check `data/chroma_db/` for persistent storage
+- use `spoiler_mode=through_series_boundary`

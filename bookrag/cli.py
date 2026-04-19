@@ -3,15 +3,31 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import secrets
+import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
 import requests
 
-from bookrag.folder_ingest import FolderIngestor, LocalIngestConfig
+from bookrag.folder_ingest import FolderIngestor, LocalIngestConfig, SKIP_SUFFIXES, SUPPORTED_EXTENSIONS
 from bookrag.services import BookRAGService
 from bookrag.settings import AppSettings
+from bookrag.workspace import (
+    default_input_dir,
+    default_output_dir,
+    default_workspace_root,
+    ensure_workspace_dirs,
+    find_workspace_root,
+    load_workspace,
+    save_workspace,
+    write_integration_bundle,
+    workspace_dir,
+    workspace_service,
+)
 
 
 CONFIG_PATH = Path.home() / ".config" / "bookrag-cli.json"
@@ -53,6 +69,440 @@ def request(method: str, path: str, *, json_body: dict[str, Any] | None = None, 
 def print_json(data: Any) -> None:
     """Pretty-print JSON output."""
     print(json.dumps(data, indent=2))
+
+
+def _prompt(prompt: str, default: str | None = None, secret: bool = False) -> str:
+    suffix = f" [{default}]" if default else ""
+    message = f"{prompt}{suffix}: "
+    if secret:
+        value = getpass.getpass(message)
+    else:
+        value = input(message)
+    value = value.strip()
+    return value or (default or "")
+
+
+def _prompt_yes_no(prompt: str, default: bool = True) -> bool:
+    default_label = "Y/n" if default else "y/N"
+    value = input(f"{prompt} [{default_label}]: ").strip().lower()
+    if not value:
+        return default
+    if value in {"y", "yes"}:
+        return True
+    if value in {"n", "no"}:
+        return False
+    raise ValueError("Please answer yes or no")
+
+
+def _validate_directory_candidate(path: Path, *, create_if_missing: bool = True) -> Path:
+    resolved = path.expanduser().resolve()
+    if resolved.exists() and not resolved.is_dir():
+        raise ValueError(f"Path is not a directory: {resolved}")
+    parent = resolved if resolved.exists() else resolved.parent
+    if not parent.exists():
+        if not create_if_missing:
+            raise ValueError(f"Parent directory does not exist: {parent}")
+        parent.mkdir(parents=True, exist_ok=True)
+    if create_if_missing:
+        resolved.mkdir(parents=True, exist_ok=True)
+    test_file = resolved / ".bookrag-write-test"
+    try:
+        test_file.write_text("ok")
+        test_file.unlink()
+    except OSError as exc:
+        raise ValueError(f"Directory is not writable: {resolved}") from exc
+    return resolved
+
+
+def _prompt_directory(prompt: str, default: Path) -> Path:
+    while True:
+        candidate = Path(_prompt(prompt, str(default)))
+        try:
+            return _validate_directory_candidate(candidate)
+        except ValueError as exc:
+            print(exc)
+
+
+def _convert_delete_source_choice(config: dict[str, Any], path: Path) -> bool:
+    if not config.get("delete_after_success", False):
+        return False
+    if config.get("input_is_managed_default", False):
+        return True
+    while True:
+        try:
+            return _prompt_yes_no(f"Delete original after verified conversion: {path.name}", default=False)
+        except ValueError as exc:
+            print(exc)
+
+
+def _headers_for_validation(api_key: str) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if api_key and api_key != "ollama":
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _detect_custom_provider_type(base_url: str, model: str) -> str:
+    lowered = f"{base_url} {model}".lower()
+    if "nvidia" in lowered or model.startswith("nvidia/"):
+        return "nvidia_nim"
+    return "openai_compatible"
+
+
+def _validate_embedding_provider(provider_type: str, base_url: str, api_key: str, model: str) -> tuple[bool, str]:
+    try:
+        payload: dict[str, Any] = {"model": model, "input": ["validation ping"], "encoding_format": "float"}
+        if provider_type == "nvidia_nim":
+            payload["input_type"] = "passage"
+        response = requests.post(
+            f"{base_url.rstrip('/')}/embeddings",
+            headers=_headers_for_validation(api_key),
+            json=payload,
+            timeout=60,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if "data" not in data:
+            return False, f"Unexpected response: {data}"
+        return True, "Validation succeeded."
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _workspace_pending_files(input_dir: Path) -> list[Path]:
+    if not input_dir.exists():
+        return []
+    files = []
+    for path in sorted(input_dir.iterdir()):
+        if (
+            path.is_file()
+            and not path.name.startswith(".")
+            and path.suffix.lower() not in SKIP_SUFFIXES
+            and path.suffix.lower() in SUPPORTED_EXTENSIONS
+        ):
+            files.append(path)
+    return files
+
+
+def _workspace_file_statuses(service: BookRAGService, library_id: int, input_dir: Path) -> list[dict[str, Any]]:
+    statuses: list[dict[str, Any]] = []
+    for path in _workspace_pending_files(input_dir):
+        status = {
+            "path": path,
+            "state": "pending",
+            "book": None,
+        }
+        try:
+            fingerprint = service.file_fingerprint(path)
+            book = service.find_verified_book_by_fingerprint(library_id, fingerprint)
+            if book:
+                status["state"] = "indexed_duplicate"
+                status["book"] = book
+        except Exception:
+            status["state"] = "pending"
+        statuses.append(status)
+    return statuses
+
+
+def _print_pending_files(files: list[dict[str, Any]], input_dir: Path) -> None:
+    print(f"Input directory: {input_dir}")
+    if not files:
+        print("No pending EPUB/PDF files found.")
+        return
+    for index, item in enumerate(files, start=1):
+        path = Path(item["path"])
+        if item["state"] == "indexed_duplicate" and item.get("book"):
+            book = item["book"]
+            print(f"{index}. {path.name} [indexed duplicate -> book_id={book['id']}, title={book['title']}]")
+        else:
+            print(f"{index}. {path.name} [pending]")
+
+
+def _resolve_series_id(service: BookRAGService, library_id: int, value: str) -> int:
+    if value.isdigit():
+        return int(value)
+    for series in service.list_series(library_id):
+        if series["name"] == value:
+            return int(series["id"])
+    raise ValueError(f"Series not found: {value}")
+
+
+def _run_setup(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="bookrag setup", description="Initialize a BookRAG workspace")
+    parser.parse_args(argv)
+
+    suggested_root = default_workspace_root()
+    print(f"Default BookRAG workspace: {suggested_root}")
+    use_default_root = _prompt_yes_no("Use the default workspace in Documents?", default=True)
+    root = _prompt_directory("Workspace root", suggested_root if use_default_root else Path.cwd())
+    ensure_workspace_dirs(root)
+    use_default_io = _prompt_yes_no("Use default input/output folders inside the workspace root?", default=True)
+    default_in = default_input_dir(root)
+    default_out = default_output_dir(root)
+    print(f"Setting up BookRAG workspace in {root}")
+    if use_default_io:
+        input_dir = _validate_directory_candidate(default_in)
+        output_dir = _validate_directory_candidate(default_out)
+        input_is_managed_default = True
+        delete_after_success = True
+    else:
+        input_dir = _prompt_directory("Custom input directory", default_in)
+        output_dir = _prompt_directory("Custom output directory", default_out)
+        input_is_managed_default = False
+        while True:
+            try:
+                delete_after_success = _prompt_yes_no("Delete original files after verified conversion?", default=False)
+                break
+            except ValueError as exc:
+                print(exc)
+    library_name = _prompt("Default library name", "Default Library")
+    print("Choose embedding provider:")
+    print("1. Ollama")
+    print("2. OpenRouter")
+    print("3. Custom endpoint")
+    provider_choice = _prompt("Provider choice", "1")
+
+    embedding: dict[str, Any]
+    secrets_data: dict[str, Any] = {"app_secret": secrets.token_hex(32)}
+    if provider_choice == "1":
+        base_url = _prompt("Ollama base URL", "http://127.0.0.1:11434/v1")
+        model = _prompt("Ollama embedding model", "embeddinggemma")
+        if shutil.which("ollama") is None:
+            print("Ollama is not installed. Install it from https://ollama.com and run `ollama pull embeddinggemma`.")
+        ok, message = _validate_embedding_provider("ollama", base_url, "ollama", model)
+        print(f"Ollama validation: {message}")
+        embedding = {
+            "name": "Workspace Embeddings",
+            "provider_type": "ollama",
+            "base_url": base_url,
+            "model": model,
+        }
+        secrets_data["embedding_api_key"] = "ollama"
+    elif provider_choice == "2":
+        base_url = _prompt("OpenRouter base URL", "https://openrouter.ai/api/v1")
+        model = _prompt("OpenRouter embedding model", "qwen/qwen3-embedding-8b")
+        api_key = _prompt("OpenRouter API key", secret=True)
+        ok, message = _validate_embedding_provider("openrouter", base_url, api_key, model)
+        print(f"OpenRouter validation: {message}")
+        embedding = {
+            "name": "Workspace Embeddings",
+            "provider_type": "openrouter",
+            "base_url": base_url,
+            "model": model,
+        }
+        secrets_data["embedding_api_key"] = api_key
+    else:
+        base_url = _prompt("Custom endpoint base URL")
+        model = _prompt("Custom embedding model")
+        api_key = _prompt("Custom API key (leave blank if none)", secret=True)
+        provider_type = _detect_custom_provider_type(base_url, model)
+        ok, message = _validate_embedding_provider(provider_type, base_url, api_key, model)
+        print(f"Custom endpoint validation: {message}")
+        embedding = {
+            "name": "Workspace Embeddings",
+            "provider_type": provider_type,
+            "base_url": base_url,
+            "model": model,
+        }
+        secrets_data["embedding_api_key"] = api_key
+
+    enable_chat = _prompt("Also configure local Ollama chat for workspace answers? (y/N)", "n").lower() == "y"
+    chat: dict[str, Any] = {"enabled": False}
+    if enable_chat:
+        base_url = _prompt("Ollama chat base URL", "http://127.0.0.1:11434/v1")
+        model = _prompt("Ollama chat model", "qwen3:4b")
+        if shutil.which("ollama") is None:
+            print("Ollama is not installed. Install it from https://ollama.com and run the model you want locally.")
+        else:
+            ok, message = _validate_embedding_provider("ollama", base_url, "ollama", embedding["model"])
+            print(f"Ollama server check: {message}")
+        chat = {
+            "enabled": True,
+            "name": "Workspace Chat",
+            "provider_type": "ollama",
+            "base_url": base_url,
+            "model": model,
+        }
+        secrets_data["chat_api_key"] = "ollama"
+
+    config = {
+        "workspace_root": str(root),
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+        "library_name": library_name,
+        "watch_interval_sec": 10,
+        "min_file_age_sec": 30,
+        "auto_delete_source": delete_after_success,
+        "delete_after_success": delete_after_success,
+        "input_is_managed_default": input_is_managed_default,
+        "embedding": embedding,
+        "chat": chat,
+    }
+    save_workspace(root, config, secrets_data)
+    bundle_dir = write_integration_bundle(root, config)
+    input_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Workspace saved in {workspace_dir(root)}")
+    print(f"Input directory: {input_dir}")
+    print(f"Output directory: {output_dir}")
+    if input_is_managed_default:
+        print("Delete policy: verified conversions auto-delete files from the managed default input folder.")
+    elif delete_after_success:
+        print("Delete policy: custom input keeps originals unless you confirm deletion after each verified conversion.")
+    else:
+        print("Delete policy: originals in the custom input folder are never deleted automatically.")
+    print(f"Agent integration bundle: {bundle_dir}")
+
+
+def _run_list(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="bookrag list", description="List pending input books in the current workspace")
+    parser.parse_args(argv)
+    root, config, secrets_data = load_workspace()
+    input_dir = Path(config["input_dir"]).expanduser().resolve()
+    service, _, _ = workspace_service(root, config, secrets_data)
+    library = service.ensure_default_library()
+    _print_pending_files(_workspace_file_statuses(service, int(library["id"]), input_dir), input_dir)
+
+
+def _run_status(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="bookrag status", description="Show workspace status")
+    parser.parse_args(argv)
+    root, config, secrets_data = load_workspace()
+    service, _, output_dir = workspace_service(root, config, secrets_data)
+    library = service.ensure_default_library()
+    books = service.list_books(int(library["id"]))
+    jobs = service.list_jobs()
+    pending = _workspace_pending_files(Path(config["input_dir"]).expanduser().resolve())
+    delete_policy = "auto-delete after verified conversion" if config.get("input_is_managed_default", False) else (
+        "ask after each verified conversion" if config.get("delete_after_success", False) else "keep originals"
+    )
+    print(f"Workspace: {root}")
+    print(f"Input: {config['input_dir']}")
+    print(f"Output: {output_dir}")
+    print(f"Input mode: {'managed default' if config.get('input_is_managed_default', False) else 'custom'}")
+    print(f"Delete policy: {delete_policy}")
+    print(f"Pending input files: {len(pending)}")
+    print(f"Indexed books: {len([book for book in books if book['ingest_status'] == 'ready'])}")
+    print(f"Failed books: {len([book for book in books if book['ingest_status'] == 'failed'])}")
+    print(f"Series: {len(service.list_series(int(library['id'])))}")
+    print(f"Jobs tracked: {len(jobs)}")
+
+
+def _run_convert(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="bookrag convert", description="Convert workspace input books into a vector DB")
+    parser.add_argument("index", nargs="?", type=int, help="Numeric index from `bookrag list`")
+    parser.add_argument("--all", action="store_true", help="Convert every pending file")
+    parser.add_argument("--output", help="Override output directory for this conversion run")
+    args = parser.parse_args(argv)
+    if not args.all and args.index is None:
+        raise ValueError("Provide an index from `bookrag list` or use --all")
+    root, config, secrets_data = load_workspace()
+    input_dir = Path(config["input_dir"]).expanduser().resolve()
+    pending = _workspace_pending_files(input_dir)
+    if not pending:
+        print("No pending EPUB/PDF files found.")
+        return
+    if args.index is not None and (args.index < 1 or args.index > len(pending)):
+        raise ValueError(f"Index must be between 1 and {len(pending)}")
+    selected = pending if args.all else [pending[args.index - 1]]
+    output_override = Path(args.output).expanduser().resolve() if args.output else None
+    service, provider_info, resolved_output = workspace_service(root, config, secrets_data, output_override=output_override)
+    library = service.ensure_default_library()
+    results: list[dict[str, Any]] = []
+    for path in selected:
+        delete_source = _convert_delete_source_choice(config, path)
+        result = service.ingest_file_from_path(
+            path,
+            library_id=int(library["id"]),
+            embedding_provider_id=int(provider_info["embedding_provider_id"]),
+            embedding_model=str(provider_info["embedding_model"]),
+            delete_source=delete_source,
+        )
+        results.append(result)
+    for item in results:
+        book = item.get("book", {})
+        if item.get("duplicate"):
+            print(f"Skipped duplicate: {book.get('title') or book.get('file_name')}")
+        else:
+            print(f"Converted: {book.get('title')} (book_id={book.get('id')}, job_id={item.get('job_id')})")
+    print(f"Output stored in: {resolved_output}")
+
+
+def _run_series(argv: list[str]) -> bool:
+    if find_workspace_root() is None or "--library-id" in argv:
+        return False
+    parser = argparse.ArgumentParser(prog="bookrag series", description="Manage connected books in the current workspace")
+    subparsers = parser.add_subparsers(dest="action", required=True)
+    subparsers.add_parser("list")
+    create = subparsers.add_parser("create")
+    create.add_argument("name")
+    subparsers.add_parser("suggest")
+    connect = subparsers.add_parser("connect")
+    connect.add_argument("series", help="Series id or exact series name")
+    connect.add_argument("book_ids", help="Comma-separated ordered book ids")
+    books = subparsers.add_parser("books")
+    args = parser.parse_args(argv)
+    root, config, secrets_data = load_workspace()
+    service, _, _ = workspace_service(root, config, secrets_data)
+    library = service.ensure_default_library()
+    library_id = int(library["id"])
+    if args.action == "list":
+        series = service.list_series(library_id)
+        if not series:
+            print("No series configured.")
+            return True
+        for item in series:
+            print(f"{item['id']}. {item['name']} -> {[book['id'] for book in item['books']]}")
+        return True
+    if args.action == "create":
+        created = service.create_series(library_id, args.name)
+        print(f"Created series {created['id']}: {created['name']}")
+        return True
+    if args.action == "suggest":
+        suggestions = service.suggest_series_groups(library_id)
+        if not suggestions["suggestions"]:
+            print("No series suggestions found.")
+            return True
+        for item in suggestions["suggestions"]:
+            print(f"{item['series_name_guess']} [{item['confidence']}]")
+            for book in item["books"]:
+                marker = book["guessed_position"] if book["guessed_position"] is not None else "?"
+                print(f"  {book['book_id']}. {book['title']} ({book['file_name']}) -> {marker}")
+        return True
+    if args.action == "books":
+        books_data = service.list_books(library_id)
+        if not books_data:
+            print("No books indexed yet.")
+            return True
+        for book in books_data:
+            print(f"{book['id']}. {book['title']} [{book['ingest_status']}]")
+        return True
+    series_id = _resolve_series_id(service, library_id, args.series)
+    payload = [{"book_id": int(book_id.strip()), "sort_order": index} for index, book_id in enumerate(args.book_ids.split(","), start=1) if book_id.strip()]
+    updated = service.reorder_series_books(series_id, payload)
+    print(f"Connected books in series {updated['name']}: {[book['id'] for book in updated['books']]}")
+    return True
+
+
+def _run_simple_cli(argv: list[str]) -> bool:
+    if not argv:
+        return False
+    command = argv[0]
+    if command == "setup":
+        _run_setup(argv[1:])
+        return True
+    if command == "list":
+        _run_list(argv[1:])
+        return True
+    if command == "status":
+        _run_status(argv[1:])
+        return True
+    if command == "convert":
+        _run_convert(argv[1:])
+        return True
+    if command == "series":
+        return _run_series(argv[1:])
+    return False
 
 
 def _local_service() -> BookRAGService:
@@ -104,6 +554,9 @@ def _local_ingest_config(service: BookRAGService, args: argparse.Namespace) -> L
 
 def main() -> None:
     """CLI entrypoint."""
+    if _run_simple_cli(sys.argv[1:]):
+        return
+
     parser = argparse.ArgumentParser(prog="bookrag", description="BookRAG REST and local CLI")
     parser.add_argument("--base-url", help="Override API base URL for this invocation")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -437,3 +890,7 @@ def main() -> None:
                 max_tokens=args.max_tokens,
             )
         )
+
+
+if __name__ == "__main__":
+    main()

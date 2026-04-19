@@ -10,13 +10,8 @@ from typing import Any
 
 import fitz
 
+from bookrag.epub_processing import EpubProcessor
 from bookrag.providers import BaseProvider, ProviderConfig
-
-# Import from legacy module in parent directory
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from epub_processor import EpubProcessor
 
 
 logger = logging.getLogger(__name__)
@@ -39,9 +34,7 @@ class DocumentIngestor:
 
     def ingest_epub(self, file_path: Path, chunk_size: int, chunk_overlap: int) -> IngestedDocument:
         """Ingest an EPUB using the existing processor."""
-        processor = EpubProcessor()
-        processor.chunk_size = chunk_size
-        processor.chunk_overlap = chunk_overlap
+        processor = EpubProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         book = processor.load_epub(str(file_path))
         title = processor.get_epub_title(book)
         author = None
@@ -80,9 +73,7 @@ class DocumentIngestor:
     ) -> IngestedDocument:
         """Ingest a PDF through direct extraction and optional OCR."""
         document = fitz.open(file_path)
-        processor = EpubProcessor()
-        processor.chunk_size = chunk_size
-        processor.chunk_overlap = chunk_overlap
+        processor = EpubProcessor(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
         pages: list[tuple[str, str]] = []
         used_ocr = False

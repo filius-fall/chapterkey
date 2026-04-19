@@ -45,16 +45,33 @@ class VectorStore:
         chunks: list[str],
         metadatas: list[dict[str, Any]],
     ) -> None:
-        """Replace all chunks for a book."""
+        """Replace all chunks for a book with batching for ChromaDB limits."""
         collection = self._collection(library_id, book_id)
         existing = collection.get()
         existing_ids = existing.get("ids", [])
         if existing_ids:
             collection.delete(ids=existing_ids)
 
+        # ChromaDB has a max batch size limit (typically ~5461)
+        batch_size = 5000
         ids = [f"{library_id}_{book_id}_{index}" for index in range(len(chunks))]
-        collection.add(ids=ids, embeddings=embeddings, documents=chunks, metadatas=metadatas)
-        logger.info("Indexed %s chunks for library=%s book=%s", len(chunks), library_id, book_id)
+        
+        for i in range(0, len(chunks), batch_size):
+            batch_ids = ids[i:i + batch_size]
+            batch_embeddings = embeddings[i:i + batch_size]
+            batch_chunks = chunks[i:i + batch_size]
+            batch_metadatas = metadatas[i:i + batch_size]
+            
+            collection.add(
+                ids=batch_ids,
+                embeddings=batch_embeddings,
+                documents=batch_chunks,
+                metadatas=batch_metadatas
+            )
+            logger.info("Indexed batch %s/%s chunks for library=%s book=%s", 
+                       i + len(batch_ids), len(chunks), library_id, book_id)
+        
+        logger.info("Indexed total %s chunks for library=%s book=%s", len(chunks), library_id, book_id)
 
     def count_book_chunks(self, library_id: int, book_id: int) -> int:
         """Count the stored chunks for a book."""

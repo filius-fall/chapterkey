@@ -307,6 +307,13 @@ def create_app(service: BookRAGService | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return service.reorder_series_books(series_id, payload)
 
+    @app.get("/libraries/{library_id}/series/suggestions")
+    async def api_series_suggestions(
+        library_id: int,
+        user: dict[str, Any] = Depends(current_user),
+    ) -> dict[str, Any]:
+        return service.suggest_series_groups(library_id)
+
     @app.post("/web/series/{series_id}/reorder")
     async def web_reorder_series(
         series_id: int,

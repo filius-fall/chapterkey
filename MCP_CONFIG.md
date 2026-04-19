@@ -1,85 +1,94 @@
-# MCP Server Configuration for Opencode/Claude Code
+# BookRAG MCP Configuration
 
-## Directory: /home/sreeram/Projects/BookRAG
+BookRAG exposes a stable MCP server so external agent tools can use the same indexed books without reading Chroma files directly.
 
-Add this to your Opencode/Claude Code config:
+## Supported Client Types
+
+- Claude Code
+- OpenCode
+- Factory Droid
+- Any other client that supports stdio MCP servers
+
+## Start the Backend
+
+Run the BookRAG API first:
+
+```bash
+source venv/bin/activate
+python app_server.py
+```
+
+Then start the MCP bridge:
+
+```bash
+BOOKRAG_API_URL=http://127.0.0.1:8000 \
+BOOKRAG_API_TOKEN=your-api-token \
+python server.py
+```
+
+## Claude Code / OpenCode Example
 
 ```json
 {
   "mcpServers": {
-    "epub-rag-mcp": {
+    "bookrag": {
       "command": "python",
-      "args": ["/home/sreeram/Projects/BookRAG/server.py"]
+      "args": ["/absolute/path/to/BookRAG/server.py"],
+      "env": {
+        "BOOKRAG_API_URL": "http://127.0.0.1:8000",
+        "BOOKRAG_API_TOKEN": "your-api-token"
+      }
     }
   }
 }
 ```
 
-## Setup Steps
+## Generated Workspace Bundle
 
-1. **Create .env file** (if it doesn't exist):
-```bash
-cd /home/sreeram/Projects/BookRAG
-cp .env.template .env  # Or create manually
+If you used `bookrag setup`, BookRAG writes agent integration files into:
+
+```text
+.bookrag/integrations/
 ```
 
-2. **Get OpenRouter API Key**:
-   - Visit https://openrouter.ai/keys
-   - Copy your API key
-   - Add to `.env`: `OPENROUTER_API_KEY=your_actual_key_here`
+That folder includes:
 
-3. **Activate virtual environment**:
-```bash
-source venv/bin/activate
-```
+- `BOOKRAG_SKILL.md`
+- `claude-code.mcp.json`
+- `opencode.mcp.json`
+- `INSTALL_AGENTS.md`
 
-4. **Test the server directly** (optional):
-```bash
-python server.py
-```
-The server should start and wait for MCP connections.
+These files are meant to be copied or merged into your preferred coding-agent environment.
 
-5. **Restart Opencode/Claude Code** to load the new MCP server.
+## Tool Surface
 
-## Available Tools in Claude Code
+The MCP bridge exposes these agent-friendly tools:
 
-Once configured, you'll see these tools in Claude Code:
+- `list_libraries`
+- `list_books`
+- `list_providers`
+- `suggest_series`
+- `query_context`
+- `answer_question`
+- `list_jobs`
 
-| Tool | Usage |
-|------|-------|
-| `load_epub` | Load and process an EPUB file for RAG |
-| `ask_question` | Ask questions about loaded EPUB (Claude answers) |
-| `ask_question_with_llm` | Get direct answers using Gemini via OpenRouter |
-| `list_epubs` | List all loaded EPUBs |
-| `get_epub_info` | Get detailed info about an EPUB |
-| `clear_epub` | Remove an EPUB from storage |
-| `list_available_models` | List available Gemini models |
+## Recommended Agent Workflow
 
-## Example Usage in Claude Code
+1. Call `list_libraries`.
+2. Call `list_books` for the target library.
+3. If books appear to be part of a series, call `suggest_series`.
+4. Ask the user to confirm any ambiguous series order.
+5. Use `query_context` with spoiler controls for retrieval.
+6. Use `answer_question` only when you want BookRAG itself to call a chat model.
 
-```
-Use tool: load_epub
-epub_path: "/path/to/your/book.epub"
-```
+## REST Fallback
 
-Then ask questions:
-```
-Use tool: ask_question_with_llm
-question: "Who are the main characters?"
-model: "google/gemini-2.5-flash-preview"
-```
+If a client does not support MCP, it can use the REST API directly. The most useful endpoints are:
 
-## Troubleshooting
-
-### "Configuration error: OPENROUTER_API_KEY is required"
-- Make sure `.env` file exists in `/home/sreeram/Projects/BookRAG/`
-- File should contain: `OPENROUTER_API_KEY=your_actual_key`
-
-### "EPUB file not found"
-- Use absolute paths (e.g., `/home/user/books/book.epub`)
-- Check the file exists with: `ls -la /path/to/book.epub`
-
-### Server not appearing in Claude Code
-- Restart Opencode/Claude Code after adding config
-- Check Claude Code logs for MCP connection errors
-- Ensure the path to `server.py` is correct
+- `GET /libraries`
+- `GET /libraries/{id}/books`
+- `GET /libraries/{id}/series/suggestions`
+- `POST /query/context`
+- `POST /chat/answer`
+- `POST /series`
+- `POST /series/{id}/books/reorder`

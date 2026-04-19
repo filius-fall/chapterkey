@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,13 @@ from bookrag.vector_store import VectorStore
 
 
 logger = logging.getLogger(__name__)
+
+SERIES_NUMBER_PATTERNS = (
+    re.compile(r"(?:^|[\s._\-])vol(?:ume)?[\s._\-]*(\d+)(?:$|[\s._\-])", re.IGNORECASE),
+    re.compile(r"(?:^|[\s._\-])book[\s._\-]*(\d+)(?:$|[\s._\-])", re.IGNORECASE),
+    re.compile(r"(?:^|[\s._\-])part[\s._\-]*(\d+)(?:$|[\s._\-])", re.IGNORECASE),
+    re.compile(r"#\s*(\d+)", re.IGNORECASE),
+)
 
 
 class BookRAGService:
@@ -70,6 +78,10 @@ class BookRAGService:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
         return digest.hexdigest()
+
+    def file_fingerprint(self, path: Path) -> str:
+        """Return a SHA-256 fingerprint for a local file."""
+        return self._hash_file(Path(path))
 
     def _normalize_spoiler_inputs(
         self,
@@ -397,6 +409,25 @@ class BookRAGService:
             resolved[key] = int(provider["id"]) if provider else None
         return resolved
 
+    def find_verified_book_by_fingerprint(self, library_id: int, fingerprint: str) -> dict[str, Any] | None:
+        """Return a verified indexed book that matches the source fingerprint."""
+        row = self.db.fetch_one(
+            """
+            SELECT books.*, series.name AS series_name, series_books.sort_order AS series_order
+            FROM books
+            LEFT JOIN series_books ON series_books.book_id = books.id
+            LEFT JOIN series ON series.id = series_books.series_id
+            WHERE books.library_id = ?
+              AND books.source_fingerprint = ?
+              AND books.ingest_status = 'ready'
+              AND books.verification_status = 'verified'
+            ORDER BY books.id DESC
+            LIMIT 1
+            """,
+            (library_id, fingerprint),
+        )
+        return row
+
     def ingest_file_from_path(
         self,
         source_path: Path,
@@ -511,6 +542,93 @@ class BookRAGService:
         """List all series in a library."""
         rows = self.db.fetch_all("SELECT * FROM series WHERE library_id = ? ORDER BY name", (library_id,))
         return [self.get_series(item["id"]) for item in rows]
+
+    @staticmethod
+    def _series_sort_key(value: str) -> tuple[int, str]:
+        """Sort volume labels with numeric awareness."""
+        match = re.search(r"\d+", value)
+        if not match:
+            return (10**9, value.lower())
+        return (int(match.group(0)), value.lower())
+
+    @staticmethod
+    def _extract_series_position(text: str) -> tuple[int | None, str | None]:
+        """Extract an ordered volume indicator from a title or filename."""
+        for pattern in SERIES_NUMBER_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                number = int(match.group(1))
+                return number, match.group(0).strip()
+        standalone = re.search(r"(?:^|[\s._\-])(\d{1,3})(?:$|[\s._\-])", text)
+        if standalone:
+            return int(standalone.group(1)), standalone.group(1)
+        return None, None
+
+    @staticmethod
+    def _normalize_series_label(text: str) -> str:
+        """Remove volume markers so similar titles can be grouped."""
+        normalized = Path(text).stem.lower()
+        normalized = re.sub(r"[\[\(\{].*?[\]\)\}]", " ", normalized)
+        normalized = re.sub(r"(?:^|[\s._\-])vol(?:ume)?[\s._\-]*\d+(?:$|[\s._\-])", " ", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"(?:^|[\s._\-])book[\s._\-]*\d+(?:$|[\s._\-])", " ", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"(?:^|[\s._\-])part[\s._\-]*\d+(?:$|[\s._\-])", " ", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"#\s*\d+", " ", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"[_\-.]+", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" -_:")
+        return normalized
+
+    def suggest_series_groups(self, library_id: int) -> dict[str, Any]:
+        """Suggest series groupings and ordering from current book titles and filenames."""
+        books = self.list_books(library_id)
+        grouped: dict[str, list[dict[str, Any]]] = {}
+
+        for book in books:
+            title = str(book.get("title") or "")
+            file_name = str(book.get("file_name") or "")
+            source_text = title if title else file_name
+            normalized = self._normalize_series_label(source_text or file_name)
+            if not normalized:
+                continue
+            guessed_position, matched_from = self._extract_series_position(f"{title} {file_name}")
+            grouped.setdefault(normalized, []).append(
+                {
+                    "book_id": int(book["id"]),
+                    "title": title,
+                    "file_name": file_name,
+                    "ingest_status": book.get("ingest_status"),
+                    "existing_series_name": book.get("series_name"),
+                    "existing_series_order": book.get("series_order"),
+                    "guessed_position": guessed_position,
+                    "matched_from": matched_from,
+                }
+            )
+
+        suggestions: list[dict[str, Any]] = []
+        for normalized_name, items in grouped.items():
+            if len(items) < 2:
+                continue
+            ordered = sorted(
+                items,
+                key=lambda item: (
+                    item["guessed_position"] is None,
+                    item["guessed_position"] if item["guessed_position"] is not None else 10**9,
+                    self._series_sort_key(item["title"] or item["file_name"]),
+                ),
+            )
+            positions = [item["guessed_position"] for item in ordered if item["guessed_position"] is not None]
+            confidence = "high" if len(positions) == len(ordered) else "medium"
+            suggestions.append(
+                {
+                    "series_name_guess": normalized_name.title(),
+                    "normalized_key": normalized_name,
+                    "confidence": confidence,
+                    "books": ordered,
+                    "reason": "Grouped by matching title/file stem with detected volume markers.",
+                }
+            )
+
+        suggestions.sort(key=lambda item: (item["confidence"] != "high", item["series_name_guess"].lower()))
+        return {"library_id": library_id, "suggestions": suggestions, "total_books": len(books)}
 
     def reorder_series_books(self, series_id: int, items: list[dict[str, int]]) -> dict[str, Any]:
         """Assign books to a series with an explicit order."""

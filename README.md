@@ -45,57 +45,65 @@ BookRAG is a self-hosted application for uploading books, indexing them into a l
 
 ## Quick Start
 
-### 1. Install dependencies
+For Debian/Ubuntu users, see [INSTALL_LINUX.md](/home/sreeram/Projects/BookRAG/INSTALL_LINUX.md).
+
+### 1. Install BookRAG
 
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv ~/.venvs/bookrag
+source ~/.venvs/bookrag/bin/activate
+pip install --upgrade pip
+pip install .
 ```
 
-### 2. Configure environment
+### 2. Initialize the CLI workspace
 
 ```bash
-cp .env.template .env
+bookrag setup
 ```
 
-Set at least:
+By default this creates:
 
-```bash
-BOOKRAG_APP_SECRET=change-this-secret-before-deploying
-BOOKRAG_API_TOKEN=replace-later
-BOOKRAG_OLLAMA_EMBEDDING_MODEL=embeddinggemma
-BOOKRAG_OLLAMA_CHAT_MODEL=qwen3:latest
+```text
+~/Documents/BookRAG
+~/Documents/BookRAG/input
+~/Documents/BookRAG/output
 ```
 
-### 3. Start the app
-
-```bash
-python app_server.py
-```
-
-Visit `http://127.0.0.1:8000`, create the admin account, add providers, upload books, and index them.
+You can choose a custom workspace root or separate custom input/output folders during setup.
 
 ### Local folder workflow
 
-If you prefer a file-drop pipeline, put `.epub` and `.pdf` files into `BOOKRAG_INPUT_DIR` and run:
+After setup, put `.epub` and `.pdf` files into the configured input folder and run:
 
 ```bash
-bookrag local providers sync
-bookrag local scan
+bookrag list
+bookrag convert --all
 ```
 
-Or keep a watcher running:
+The CLI validates successful vector creation before deleting originals. In the default managed input folder, verified conversions auto-delete the source file. For custom input folders, BookRAG can ask again before deleting each verified original.
+
+### Optional web/API flow
+
+If you want the web UI or MCP bridge:
 
 ```bash
-bookrag local watch
+cp .env.template .env
+python app_server.py
 ```
-
-Successful ingests are verified against the output Chroma store and then removed from the input folder.
 
 ## CLI
 
 ```bash
+bookrag setup
+bookrag list
+bookrag convert --all
+bookrag status
+bookrag series books
+bookrag series suggest
+bookrag series create "Stormlight Archive"
+bookrag series connect "Stormlight Archive" 1,2,3
+
 bookrag --base-url http://127.0.0.1:8000 login --username admin --password your-password
 bookrag libraries list
 bookrag books upload --library-id 1 --file /path/to/book.epub
@@ -105,6 +113,8 @@ bookrag local query --question "Why did this happen?" --context-mode no_spoiler 
 bookrag local series create --name "Stormlight Archive"
 bookrag local series reorder --series-id 1 --book-ids 3,5,7
 ```
+
+`bookrag setup` is the main onboarding path. It defaults to `~/Documents/BookRAG`, validates directory choices before continuing, and stores workspace metadata under `<workspace>/.bookrag/`.
 
 ## MCP
 
@@ -132,6 +142,27 @@ Example Claude Code MCP config:
   }
 }
 ```
+
+If you used `bookrag setup`, a workspace-specific integration bundle is generated in `.bookrag/integrations/` with:
+
+- `BOOKRAG_SKILL.md`
+- `claude-code.mcp.json`
+- `opencode.mcp.json`
+- `INSTALL_AGENTS.md`
+
+These files are meant to be copied into Claude Code, OpenCode, Factory Droid, or any custom MCP-capable workflow.
+
+### External Agent Usage
+
+External coding agents should use the API or MCP layer instead of reading Chroma files directly. The recommended flow is:
+
+1. `list_libraries`
+2. `list_books`
+3. `suggest_series`
+4. `query_context`
+5. `answer_question` only if you want BookRAG to call a chat provider itself
+
+`suggest_series` exists so tools like OpenCode or Claude Code can inspect the current library, infer likely volume order from titles and filenames, and then ask for confirmation before connecting the series.
 
 ## Docker Compose
 

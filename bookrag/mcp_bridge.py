@@ -57,6 +57,15 @@ async def list_tools() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
+            name="suggest_series",
+            description="Suggest series grouping and book order from titles and filenames so an external agent can confirm or refine it.",
+            inputSchema={
+                "type": "object",
+                "properties": {"library_id": {"type": "integer"}},
+                "required": ["library_id"],
+            },
+        ),
+        Tool(
             name="query_context",
             description="Retrieve context passages from the vector database with spoiler controls.",
             inputSchema={
@@ -110,6 +119,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             payload = api_request("GET", f"/libraries/{arguments['library_id']}/books")
         elif name == "list_providers":
             payload = api_request("GET", "/providers")
+        elif name == "suggest_series":
+            payload = api_request("GET", f"/libraries/{arguments['library_id']}/series/suggestions")
         elif name == "query_context":
             payload = api_request("POST", "/query/context", arguments)
         elif name == "answer_question":
