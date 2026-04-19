@@ -56,6 +56,24 @@ Install the generated package:
 sudo dpkg -i ./bookrag_<version>_amd64.deb
 ```
 
+The package bootstraps its Python environment on the target machine during install.
+This avoids broken CI-built virtualenv paths and Python ABI mismatches.
+
+Notes:
+
+- internet access is required during installation so the target machine can install Python dependencies into `/opt/bookrag/venv`
+- if the bootstrap step fails, re-run:
+
+```bash
+sudo dpkg --configure bookrag
+```
+
+- bootstrap logs are written to:
+
+```text
+/var/log/bookrag-bootstrap.log
+```
+
 Then run:
 
 ```bash

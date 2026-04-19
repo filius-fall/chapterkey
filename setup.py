@@ -14,7 +14,7 @@ requirements = requirements_file.read_text().splitlines() if requirements_file.e
 
 setup(
     name="bookrag",
-    version="2.0.0",
+    version="2.0.1",
     author="OpenAI Codex",
     url="https://github.com/filius-fall/chapterkey",
     description="ChapterKey: self-hosted book indexing and retrieval with web UI, REST API, CLI, and MCP bridge",

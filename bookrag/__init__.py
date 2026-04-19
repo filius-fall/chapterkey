@@ -1,6 +1,6 @@
 """ChapterKey application package."""
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 __update_repo__ = "filius-fall/chapterkey"
 __default_branch__ = "main"
 

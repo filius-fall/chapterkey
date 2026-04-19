@@ -91,6 +91,15 @@ Sample runtime env file:
 /etc/bookrag/bookrag.env
 ```
 
+The `.deb` builds its virtual environment on the target machine during install instead of shipping a CI-created venv.
+That avoids broken interpreter paths and Python ABI mismatches across machines.
+
+Notes for `.deb` installs:
+
+- internet access is required during installation so dependencies can be installed into `/opt/bookrag/venv`
+- if bootstrap fails, re-run `sudo dpkg --configure bookrag`
+- bootstrap logs are written to `/var/log/bookrag-bootstrap.log`
+
 You can also download the `.deb` from GitHub Releases once a tagged release has been built.
 
 ### Option 3: Docker from the repo
