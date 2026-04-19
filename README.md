@@ -1,53 +1,42 @@
 # BookRAG
 
-BookRAG is a self-hosted application for uploading books, indexing them into a local vector database, and querying them through a web UI, REST API, CLI, or MCP server.
+BookRAG is a self-hosted book indexing and retrieval tool for `EPUB` and `PDF` files.
 
-## What It Supports
+It is designed for a CLI-first workflow:
 
-- Upload `EPUB` and `PDF` books
-- Build local Chroma indexes per uploaded book
-- Save your own provider keys for:
-  - local Ollama
-  - hosted Ollama-compatible endpoints
-  - OpenAI-compatible APIs such as OpenRouter
-  - NVIDIA embedding APIs such as `nvidia/nv-embedqa-e5-v5`
-  - Anthropic
-  - Google Gemini
-- Choose separate models for:
-  - Embeddings
-  - Chat
-  - OCR / vision extraction
-- Query with spoiler modes:
+- drop books into an input folder
+- convert them into a local vector database
+- keep each book separately indexed inside the output database
+- query with spoiler-aware retrieval rules
+- group books into series and restrict retrieval by book/chapter/series boundary
+
+BookRAG can also expose the same indexed books through a web API and MCP server for tools like Claude Code, OpenCode, and similar agent clients.
+
+## Features
+
+- Supports `EPUB` and `PDF`
+- Creates a local Chroma-based vector database
+- Stores book metadata in SQLite
+- Supports local and hosted embedding providers
+- Supports:
+  - Ollama
+  - OpenRouter
+  - NVIDIA NIM / build.nvidia.com style embedding endpoints
+  - other OpenAI-compatible endpoints
+- Spoiler-aware retrieval modes:
   - `full_context`
   - `book_only`
   - `through_chapter`
   - `through_series_boundary`
-- Link books into an ordered series
-- Use the same backend from:
-  - built-in web app
-  - REST API
-  - `bookrag` / `bookrag-cli`
-  - `bookrag-mcp`
-- Watch an input folder and auto-ingest books into a shared output store
-- Query locally without running the API server
+- Series suggestions from filenames and titles like `Vol 01`, `Book 2`, `Part 3`
+- CLI workspace setup with default folders in `~/Documents/BookRAG`
+- Optional API + MCP access for external agent tools
 
-## Architecture
+## Install
 
-- `bookrag/api.py`: FastAPI app and built-in web UI
-- `bookrag/services.py`: shared application logic
-- `bookrag/providers.py`: provider adapters
-- `bookrag/ingestion.py`: EPUB/PDF ingestion and OCR
-- `bookrag/vector_store.py`: Chroma storage
-- `bookrag/cli.py`: command-line interface
-- `bookrag/folder_ingest.py`: input-folder scan/watch workflow
-- `bookrag/local_api.py`: direct local query helpers
-- `bookrag/mcp_bridge.py`: MCP server that proxies to the REST API
+### Option 1: pip + venv
 
-## Quick Start
-
-For Debian/Ubuntu users, see [INSTALL_LINUX.md](/home/sreeram/Projects/BookRAG/INSTALL_LINUX.md).
-
-### 1. Install BookRAG
+This is the main recommended install path.
 
 ```bash
 python3 -m venv ~/.venvs/bookrag
@@ -56,7 +45,80 @@ pip install --upgrade pip
 pip install .
 ```
 
-### 2. Initialize the CLI workspace
+If you publish the package later, users can replace `pip install .` with:
+
+```bash
+pip install bookrag
+```
+
+### Option 2: Debian package
+
+BookRAG currently targets Debian-based Linux best, especially:
+
+- Debian 12
+- Ubuntu 22.04
+- Ubuntu 24.04
+
+Build the package from this repo:
+
+```bash
+./scripts/build_deb.sh
+```
+
+That creates:
+
+```text
+dist/bookrag_<version>_amd64.deb
+```
+
+Install it with:
+
+```bash
+sudo dpkg -i ./dist/bookrag_<version>_amd64.deb
+```
+
+The Debian package installs:
+
+- `bookrag`
+- `bookrag-api`
+- `bookrag-mcp`
+
+Sample runtime env file:
+
+```text
+/etc/bookrag/bookrag.env
+```
+
+## Environment file
+
+Use this as the source of truth for what `.env` should look like:
+
+- [`.env.example`](/home/sreeram/Projects/BookRAG/.env.example:1)
+
+Typical workflow:
+
+```bash
+cp .env.example .env
+```
+
+Important variables:
+
+- `BOOKRAG_INPUT_DIR`
+- `BOOKRAG_OUTPUT_DIR`
+- `BOOKRAG_SQLITE_PATH`
+- `BOOKRAG_VECTOR_DB_DIR`
+- `BOOKRAG_DEFAULT_EMBEDDING_PROVIDER_NAME`
+- `BOOKRAG_OPENROUTER_API_KEY`
+- `BOOKRAG_NVIDIA_API_KEY`
+- `BOOKRAG_OLLAMA_EMBEDDING_MODEL`
+
+Do not commit `.env`.
+
+## Quick Start
+
+### 1. Initialize the workspace
+
+Run:
 
 ```bash
 bookrag setup
@@ -68,57 +130,252 @@ By default this creates:
 ~/Documents/BookRAG
 ~/Documents/BookRAG/input
 ~/Documents/BookRAG/output
+~/Documents/BookRAG/.bookrag
 ```
 
-You can choose a custom workspace root or separate custom input/output folders during setup.
+During setup, BookRAG will:
 
-### Local folder workflow
+1. Ask whether to use the default `~/Documents/BookRAG` workspace
+2. Let you choose a custom workspace root if you want
+3. Ask whether to use default `input` and `output` folders
+4. Let you choose custom input/output folders separately
+5. Validate directories before saving the workspace
+6. Ask you to configure an embedding provider
 
-After setup, put `.epub` and `.pdf` files into the configured input folder and run:
+### 2. Choose provider
+
+The CLI setup currently supports:
+
+- Ollama
+- OpenRouter
+- Custom endpoint
+
+Examples:
+
+- Ollama local:
+  - base URL: `http://127.0.0.1:11434/v1`
+  - model: `embeddinggemma`
+- OpenRouter:
+  - base URL: `https://openrouter.ai/api/v1`
+  - embedding model: `qwen/qwen3-embedding-8b`
+- NVIDIA NIM / build.nvidia.com:
+  - use `Custom endpoint`
+  - base URL: `https://integrate.api.nvidia.com/v1`
+  - model: `nvidia/nv-embedqa-e5-v5`
+
+The setup flow validates the embedding endpoint before finishing.
+
+### 3. Add books
+
+Drop `.epub` or `.pdf` files into your configured input folder.
+
+Default input folder:
+
+```text
+~/Documents/BookRAG/input
+```
+
+Then list them:
 
 ```bash
 bookrag list
+```
+
+### 4. Convert books
+
+Convert one book by number:
+
+```bash
+bookrag convert 1
+```
+
+Convert everything in the input folder:
+
+```bash
 bookrag convert --all
 ```
 
-The CLI validates successful vector creation before deleting originals. In the default managed input folder, verified conversions auto-delete the source file. For custom input folders, BookRAG can ask again before deleting each verified original.
-
-### Optional web/API flow
-
-If you want the web UI or MCP bridge:
+Check workspace status:
 
 ```bash
-cp .env.template .env
-python app_server.py
+bookrag status
 ```
 
-## CLI
+## Input and deletion behavior
+
+BookRAG treats default and custom input folders differently.
+
+### Default managed input
+
+If you use the default workspace input folder, BookRAG treats it as managed.
+
+Behavior:
+
+- file is converted
+- vector DB is verified
+- original input file is deleted automatically after success
+
+### Custom input folder
+
+If you use a custom input folder, BookRAG asks whether originals should be deleted after verified conversion.
+
+Behavior:
+
+- if you choose no:
+  - originals stay in the custom input folder
+- if you choose yes:
+  - BookRAG asks one more time per file after verified conversion before deleting it
+
+If a kept original is already indexed, `bookrag list` shows it as an indexed duplicate instead of plain pending.
+
+## Output layout
+
+The output folder contains the working BookRAG database:
+
+- `bookrag.sqlite3`
+- `chroma_db/`
+- `managed_books/`
+
+Each indexed book remains separately identifiable inside the shared output database, which is important for:
+
+- spoiler-safe retrieval
+- series linking
+- per-book context restrictions
+
+## CLI commands
+
+### Workspace commands
 
 ```bash
 bookrag setup
 bookrag list
-bookrag convert --all
 bookrag status
-bookrag series books
-bookrag series suggest
-bookrag series create "Stormlight Archive"
-bookrag series connect "Stormlight Archive" 1,2,3
+bookrag convert 1
+bookrag convert --all
+bookrag convert --all --output /path/to/another/output
+```
 
+### Series commands
+
+Show indexed books:
+
+```bash
+bookrag series books
+```
+
+Show suggested series ordering from titles and filenames:
+
+```bash
+bookrag series suggest
+```
+
+Create a series:
+
+```bash
+bookrag series create "Stormlight Archive"
+```
+
+Connect books to a series in order:
+
+```bash
+bookrag series connect "Stormlight Archive" 1,2,3
+```
+
+List series:
+
+```bash
+bookrag series list
+```
+
+### Advanced/local commands
+
+BookRAG still includes the older local/API-oriented CLI surface for direct service usage:
+
+```bash
+bookrag local providers sync
+bookrag local scan
+bookrag local query --question "Why did this happen?"
+bookrag local answer --question "Explain this scene"
+```
+
+### REST/API-oriented commands
+
+If you run the API server, you can also use:
+
+```bash
 bookrag --base-url http://127.0.0.1:8000 login --username admin --password your-password
 bookrag libraries list
 bookrag books upload --library-id 1 --file /path/to/book.epub
-bookrag books ingest --book-id 1 --embedding-provider-id 1 --embedding-model text-embedding-3-small
-bookrag chat --library-id 1 --question "What happens?" --chat-provider-id 1 --chat-model google/gemini-2.5-flash-preview
-bookrag local query --question "Why did this happen?" --context-mode no_spoiler --active-book-id 1 --active-chapter-index 10
-bookrag local series create --name "Stormlight Archive"
-bookrag local series reorder --series-id 1 --book-ids 3,5,7
+bookrag books ingest --book-id 1 --embedding-provider-id 1 --embedding-model your-model
 ```
 
-`bookrag setup` is the main onboarding path. It defaults to `~/Documents/BookRAG`, validates directory choices before continuing, and stores workspace metadata under `<workspace>/.bookrag/`.
+## Spoiler-safe retrieval
 
-## MCP
+BookRAG is designed for both spoiler and no-spoiler reading workflows.
 
-Start the BookRAG API first, then run:
+### Modes
+
+- `full_context`
+  - search everything indexed
+- `book_only`
+  - restrict to one book
+- `through_chapter`
+  - only use content up to the current chapter
+- `through_series_boundary`
+  - only use content up to the current point in a series
+
+### Example idea
+
+If you are reading a book for the first time and only want safe context:
+
+- use `context_mode=no_spoiler`
+- provide:
+  - `active_book_id`
+  - `active_chapter_index`
+
+For full spoilers and full context:
+
+- use `spoiler_mode=full_context`
+
+## Series support
+
+BookRAG can infer likely series order from filenames and titles.
+
+Examples:
+
+- `Chronicle Vol 01.epub`
+- `Chronicle Vol 02.epub`
+- `Book 1`
+- `Part 3`
+
+Use:
+
+```bash
+bookrag series suggest
+```
+
+Then confirm and connect the books with:
+
+```bash
+bookrag series connect "Series Name" 1,2,3
+```
+
+This is useful when the files already contain the volume order and you do not want to enter everything manually.
+
+## Web API and MCP
+
+The main workflow is CLI-first, but BookRAG can also run as an API and MCP backend.
+
+### Start API server
+
+```bash
+cp .env.example .env
+python app_server.py
+```
+
+This starts the FastAPI app.
+
+### Start MCP server
 
 ```bash
 BOOKRAG_API_URL=http://127.0.0.1:8000 \
@@ -126,55 +383,95 @@ BOOKRAG_API_TOKEN=your-api-token \
 python server.py
 ```
 
-Example Claude Code MCP config:
+### MCP tools
 
-```json
-{
-  "mcpServers": {
-    "bookrag": {
-      "command": "python",
-      "args": ["/absolute/path/to/BookRAG/server.py"],
-      "env": {
-        "BOOKRAG_API_URL": "http://127.0.0.1:8000",
-        "BOOKRAG_API_TOKEN": "your-api-token"
-      }
-    }
-  }
-}
+The MCP bridge exposes tools like:
+
+- `list_libraries`
+- `list_books`
+- `list_providers`
+- `suggest_series`
+- `query_context`
+- `answer_question`
+- `list_jobs`
+
+## Agent integrations
+
+When you run `bookrag setup`, BookRAG generates an integration bundle in:
+
+```text
+<workspace>/.bookrag/integrations/
 ```
 
-If you used `bookrag setup`, a workspace-specific integration bundle is generated in `.bookrag/integrations/` with:
+That folder includes:
 
 - `BOOKRAG_SKILL.md`
 - `claude-code.mcp.json`
 - `opencode.mcp.json`
 - `INSTALL_AGENTS.md`
 
-These files are meant to be copied into Claude Code, OpenCode, Factory Droid, or any custom MCP-capable workflow.
+These files are intended to help connect BookRAG to:
 
-### External Agent Usage
+- Claude Code
+- OpenCode
+- Factory Droid
+- other MCP-capable clients
 
-External coding agents should use the API or MCP layer instead of reading Chroma files directly. The recommended flow is:
+Recommended external-agent workflow:
 
-1. `list_libraries`
-2. `list_books`
-3. `suggest_series`
-4. `query_context`
-5. `answer_question` only if you want BookRAG to call a chat provider itself
+1. connect through BookRAG API or MCP
+2. call `list_books`
+3. call `suggest_series` when needed
+4. use `query_context` for retrieval
+5. use `answer_question` only if you want BookRAG to call a chat model directly
 
-`suggest_series` exists so tools like OpenCode or Claude Code can inspect the current library, infer likely volume order from titles and filenames, and then ask for confirmation before connecting the series.
+## Current repo data
 
-## Docker Compose
+At the time of inspection, the current default runtime config in this repo points to:
+
+- output DB: `data/bookrag_output`
+- input folder: `data/input_books`
+
+That is controlled by `.env`.
+
+## Troubleshooting
+
+### `bookrag list` shows indexed duplicate
+
+That means the original file still exists in a custom input folder, but BookRAG has already indexed it successfully.
+
+### No workspace found
+
+Run:
 
 ```bash
-cp .env.template .env
-docker compose up --build
+bookrag setup
 ```
 
-The app stores SQLite data, uploads, and Chroma indexes in `./data`.
+If you are using a custom workspace, run commands from inside that workspace root or point your shell at the correct environment/home setup.
 
-## OCR Notes
+### Provider validation fails
 
-- OCR is intended for scanned PDFs, comics, and manga.
-- OCR uses the selected vision-capable provider/model and may be significantly more expensive than text-only indexing.
-- The app requires explicit OCR confirmation for indexing requests.
+Check:
+
+- base URL
+- API key
+- model name
+- whether the provider supports `/embeddings`
+
+### Large book conversion is slow
+
+Large EPUB/PDF conversions depend heavily on:
+
+- embedding provider speed
+- network latency
+- model throughput
+- chunk count
+
+Cloud embeddings may take longer on very large books.
+
+## Related docs
+
+- [INSTALL_LINUX.md](/home/sreeram/Projects/BookRAG/INSTALL_LINUX.md:1)
+- [QUICKSTART.md](/home/sreeram/Projects/BookRAG/QUICKSTART.md:1)
+- [MCP_CONFIG.md](/home/sreeram/Projects/BookRAG/MCP_CONFIG.md:1)
